@@ -101,9 +101,6 @@ class ConfigSave extends FormRequest
         'password_limit_enable' => 'in:0,1',
         'password_limit_count' => 'integer',
         'password_limit_expire' => 'integer',
-        // oauth (Google)
-        'google_client_id' => 'nullable|string',
-        'google_client_secret' => 'nullable|string',
     ];
     /**
      * Get the validation rules that apply to the request.

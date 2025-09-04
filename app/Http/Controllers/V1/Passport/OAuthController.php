@@ -44,12 +44,12 @@ class OAuthController extends Controller
             // --- 动态设置 Google Redirect URI ---
             $redirectUri = ($redirectDomain ? rtrim($redirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
             
-            // --- 从站点配置读取 Google 凭据 ---
-            $googleClientId = config('v2board.google_client_id');
-            $googleClientSecret = config('v2board.google_client_secret');
+            // --- 从 .env (config/services.php) 读取 Google 凭据 ---
+            $googleClientId = config('services.google.client_id');
+            $googleClientSecret = config('services.google.client_secret');
 
             if (!$googleClientId || !$googleClientSecret) {
-                Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the system settings.");
+                Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the .env file.");
                 return response()->json(['error' => 'Google OAuth is not properly configured on the server.'], 500);
             }
             
@@ -78,12 +78,12 @@ class OAuthController extends Controller
             $storedRedirectDomain = $oauthParams['redirect_domain'] ?? '';
             $redirectUri = ($storedRedirectDomain ? rtrim($storedRedirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
             
-            // --- 从站点配置读取 Google 凭据 ---
-            $googleClientId = config('v2board.google_client_id');
-            $googleClientSecret = config('v2board.google_client_secret');
+            // --- 从 .env (config/services.php) 读取 Google 凭据 ---
+            $googleClientId = config('services.google.client_id');
+            $googleClientSecret = config('services.google.client_secret');
 
             if (!$googleClientId || !$googleClientSecret) {
-                Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the system settings (Callback).");
+                Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the .env file (Callback).");
                 return redirect()->to($this->getFailureRedirectUrl('Google OAuth is not properly configured on the server.'));
             }
             

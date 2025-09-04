@@ -168,11 +168,6 @@ class ConfigController extends Controller
                 'password_limit_enable' => (int)config('v2board.password_limit_enable', 1),
                 'password_limit_count' => config('v2board.password_limit_count', 5),
                 'password_limit_expire' => config('v2board.password_limit_expire', 60)
-            ],
-            // oauth (Google)
-            'oauth' => [
-                'google_client_id' => config('v2board.google_client_id'),
-                'google_client_secret' => config('v2board.google_client_secret'),
             ]
         ];
         if ($key && isset($data[$key])) {
