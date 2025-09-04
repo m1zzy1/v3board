@@ -41,8 +41,26 @@ class OAuthController extends Controller
                 ]
             ]);
 
-            // 重定向到 Google OAuth
-            return Socialite::driver('google')->redirect();
+            // --- 动态设置 Google Redirect URI ---
+            $redirectUri = ($redirectDomain ? rtrim($redirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
+            
+            // --- 从站点配置读取 Google 凭据 ---
+            $googleClientId = config('v2board.google_client_id');
+            $googleClientSecret = config('v2board.google_client_secret');
+
+            if (!$googleClientId || !$googleClientSecret) {
+                Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the system settings.");
+                return response()->json(['error' => 'Google OAuth is not properly configured on the server.'], 500);
+            }
+            
+            // 使用 Socialite 并动态设置 redirect_uri 和凭据
+            return Socialite::driver('google')
+                ->redirectUrl($redirectUri)
+                ->setConfig([
+                    'client_id' => $googleClientId,
+                    'client_secret' => $googleClientSecret,
+                ])
+                ->redirect();
         } else {
             return response()->json(['error' => 'Unsupported OAuth type'], 400);
         }
@@ -54,8 +72,29 @@ class OAuthController extends Controller
     public function handleGoogleCallback(Request $request)
     {
         try {
-            // 从 Google 获取用户信息
-            $googleUser = Socialite::driver('google')->user();
+            // --- 动态设置 Google Redirect URI (用于获取用户信息) ---
+            // 从 Session 获取之前存储的 redirect_domain 来构建回调 URL
+            $oauthParams = session('oauth_params', []);
+            $storedRedirectDomain = $oauthParams['redirect_domain'] ?? '';
+            $redirectUri = ($storedRedirectDomain ? rtrim($storedRedirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
+            
+            // --- 从站点配置读取 Google 凭据 ---
+            $googleClientId = config('v2board.google_client_id');
+            $googleClientSecret = config('v2board.google_client_secret');
+
+            if (!$googleClientId || !$googleClientSecret) {
+                Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the system settings (Callback).");
+                return redirect()->to($this->getFailureRedirectUrl('Google OAuth is not properly configured on the server.'));
+            }
+            
+            // 使用 Socialite 并动态设置 redirect_uri 和凭据
+            $googleUser = Socialite::driver('google')
+                ->redirectUrl($redirectUri)
+                ->setConfig([
+                    'client_id' => $googleClientId,
+                    'client_secret' => $googleClientSecret,
+                ])
+                ->user();
 
             $email = $googleUser->getEmail();
             $name = $googleUser->getName();
@@ -66,10 +105,8 @@ class OAuthController extends Controller
                  return redirect()->to($this->getFailureRedirectUrl('Google did not provide an email address.'));
             }
 
-            // 从 Session 获取之前存储的参数
-            $oauthParams = session('oauth_params', []);
             $inviteCode = $oauthParams['code'] ?? '';
-            $redirectDomain = $oauthParams['redirect_domain'] ?? '';
+            $redirectDomain = $storedRedirectDomain;
 
             // 清理 Session
             $request->session()->forget('oauth_params');
@@ -108,7 +145,7 @@ class OAuthController extends Controller
      */
     public function handleTelegramLogin(Request $request)
     {
-        // 1. 验证 Telegram 数据
+        // 1. 验证 Telegram 数据 (使用系统配置的 Telegram Bot Token)
         if (!$this->verifyTelegramAuth($request->all())) {
              return response('Telegram authentication verification failed.', 403);
         }
@@ -127,7 +164,7 @@ class OAuthController extends Controller
         // 3. 处理响应并重定向
         if ($result['success']) {
             $token = $result['token'];
-            // 重定向到默认仪表盘
+            // 重定向到默认仪表盘或根据需要处理
             $finalRedirectUrl = url('/#/dashboard?token=' . $token);
             return redirect()->to($finalRedirectUrl);
         } else {
@@ -275,15 +312,16 @@ class OAuthController extends Controller
     }
 
     /**
-     * 验证 Telegram 登录数据
+     * 验证 Telegram 登录数据 (使用系统配置的 Telegram Bot Token)
      * @param array $data Telegram 发送的所有参数
      * @return bool
      */
     private function verifyTelegramAuth($data)
     {
-        $token = config('services.telegram-bot-api.token');
+        // --- 使用系统配置的 Telegram Bot Token ---
+        $token = config('v2board.telegram_bot_token');
         if (!$token) {
-             Log::error("Telegram Bot Token not configured in services.php or .env");
+             Log::error("Telegram Bot Token not configured in v2board config (config/v2board.php or .env)");
              return false;
         }
 
