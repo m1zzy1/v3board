@@ -17,6 +17,7 @@ use App\Utils\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use ReCaptcha\ReCaptcha;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -227,6 +228,116 @@ class AuthController extends Controller
         $authService = new AuthService($user);
         return response([
             'data' => $authService->generateAuthData($request)
+        ]);
+    }
+
+    public function oauthLogin(Request $request)
+    {
+        $email = $request->input('email');
+        $uuid = $request->input('uuid'); // 可选
+
+        $user = User::where('email', $email)->first();
+
+        if ($uuid) {
+            // 登录流程：需要验证uuid
+            if (!$user || $user->uuid !== $uuid) {
+                abort(401, 'Invalid email or UUID');
+            }
+        } else {
+            // 注册流程：用户不存在才注册
+            if (!$user) {
+                $password = Str::random(12);
+
+                // 用 new User() 避开 mass-assignment 问题，保持与 register() 一致的密码哈希方式
+                $user = new User();
+                $user->email = $email;
+                $user->password = password_hash($password, PASSWORD_DEFAULT); // 与 register() 保持一致
+                $user->uuid = Helper::guid(true);
+                $user->token = Helper::guid();
+
+                // --- 邀请码逻辑：参数是 code（可为空），你要求 code 为空表示没人邀请 ---
+                if (!empty($request->input('code'))) {
+                    $inviteCode = InviteCode::where('code', $request->input('code'))
+                        ->where('status', 0)
+                        ->first();
+                    if ($inviteCode) {
+                        $user->invite_user_id = $inviteCode->user_id ? $inviteCode->user_id : null;
+                        if (!(int)config('v2board.invite_never_expire', 0)) {
+                            $inviteCode->status = 1;
+                            $inviteCode->save();
+                        }
+                    }
+                }
+
+                // 如果你的 users 表有其它 NOT NULL 必填项，请在这里补上（例如 is_admin/banned 等）
+                // $user->is_admin = 0;
+                // $user->banned = 0;
+
+                if (!$user->save()) {
+                    abort(500, __('Register failed'));
+                }
+
+                // 异步发送邮件（队列），模板名用你之前的 googleWelcome
+                SendEmailJob::dispatch([
+                    'email' => $user->email,
+                    'subject' => __('Welcome to :app_name - Your account info', [
+                        'app_name' => config('v2board.app_name', 'V2board')
+                    ]),
+                    'template_name' => 'googleWelcome',
+                    'template_value' => [
+                        'name'     => $user->email,
+                        'email'    => $user->email,
+                        'password' => $password,
+                        'app_name' => config('v2board.app_name', 'V2Board'),
+                        'url'      => config('v2board.app_url')
+                    ]
+                ]);
+            }
+        }
+
+        if ($user->banned) {
+            abort(403, 'Your account has been suspended');
+        }
+
+        $authService = new AuthService($user);
+        return response([
+            'data' => $authService->generateAuthData($request)
+        ]);
+    }
+
+    /**
+     * 前端轮询接口，查询登录状态
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    // 轮询接口，取缓存做登录
+    public function telegramLoginCheck(Request $request)
+    {
+        $code = $request->input('code');
+        if (!$code) {
+            return response()->json(['error' => 'code is required'], 400);
+        }
+
+        $cacheKey = 'telegram_login_code_' . $code;
+        $userId = Cache::get($cacheKey);
+
+        if (!$userId) {
+            return response()->json(['status' => 'pending']); // 等待绑定或者超时
+        }
+
+        $user = User::find($userId);
+        if (!$user || $user->banned) {
+            return response()->json(['error' => 'User not found or banned'], 403);
+        }
+
+        Cache::forget($cacheKey);  // 登录成功删除缓存
+
+        $authService = new AuthService($user);
+        $authData = $authService->generateAuthData($request);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $authData,
         ]);
     }
 
