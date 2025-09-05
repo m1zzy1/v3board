@@ -3,8 +3,6 @@
 namespace App\Plugins\Telegram\Commands;
 
 use App\Plugins\Telegram\Telegram;
-use Illuminate\Support\Facades\Cache;
-use App\Utils\CacheKey;
 use App\Models\User;
 use App\Utils\Helper;
 use Illuminate\Support\Facades\Log;
@@ -26,20 +24,6 @@ class Login extends Telegram {
         }
         
         $hash = $message->args[0];
-        
-        // 验证哈希值是否存在且未过期
-        $cacheKey = CacheKey::get('TELEGRAM_LOGIN_HASH', $hash);
-        $cachedData = Cache::get($cacheKey);
-        
-        if (!$cachedData) {
-            $this->sendReply($message, "❌ 无效或已过期的哈希值，请重新获取登录码。");
-            return;
-        }
-        
-        // 删除已使用的哈希值
-        Cache::forget($cacheKey);
-        
-        // 获取 Telegram 用户 ID
         $tgId = $message->chat_id;
         
         // 检查用户是否已绑定 Telegram ID

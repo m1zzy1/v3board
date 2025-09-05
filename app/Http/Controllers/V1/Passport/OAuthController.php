@@ -333,10 +333,7 @@ class OAuthController extends Controller
         
         // 2. 将 hash 值存储到缓存中，设置过期时间（例如5分钟）
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_HASH', $hash);
-        Cache::put($cacheKey, [
-            'hash' => $hash,
-            'created_at' => time()
-        ], 300); // 5分钟过期
+        Cache::put($cacheKey, $hash, 300); // 5分钟过期
         
         // 3. 返回 hash 值给前端
         return response([
@@ -529,9 +526,9 @@ class OAuthController extends Controller
         
         // 2. 验证 hash 值是否存在且未过期
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_HASH', $hash);
-        $cachedData = Cache::get($cacheKey);
+        $cachedHash = Cache::get($cacheKey);
         
-        if (!$cachedData) {
+        if ($cachedHash !== $hash) {
             return response()->json(['error' => 'Invalid or expired hash'], 400);
         }
         
