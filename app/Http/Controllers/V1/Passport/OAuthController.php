@@ -89,31 +89,39 @@ class OAuthController extends Controller
     public function handleGoogleCallback(Request $request)
     {
         try {
+            // 开始处理前记录日志
+            Log::info("Google OAuth Callback received", ['query_params' => $request->all()]);
+
             // --- 从 Laravel Session 获取之前存储的参数 ---
             $oauthParams = session('oauth_params', []);
             $inviteCode = $oauthParams['invite_code'] ?? ''; // 从 Session 取出邀请码
             // --- 修正：从 Session 取出前端完整的重定向 URL ---
             $frontendRedirectUrl = $oauthParams['frontend_redirect_url'] ?? '';
 
+            Log::info("Retrieved from session", ['invite_code' => $inviteCode, 'frontend_redirect_url' => $frontendRedirectUrl]);
+
             // --- 从配置读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
             $googleClientSecret = config('services.google.client_secret');
 
             if (!$googleClientId || !$googleClientSecret) {
-                Log::error("Google OAuth credentials (Client ID or Secret) are not configured.");
-                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Google OAuth is not properly configured on the server.');
+                $errorMsg = "Google OAuth credentials (Client ID or Secret) are not configured.";
+                Log::error($errorMsg);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, $errorMsg);
             }
 
             // --- 1. 从回调 URL 获取 Authorization Code ---
             $authorizationCode = $request->input('code');
             if (!$authorizationCode) {
-                Log::warning("Google OAuth callback missing 'code' parameter.", ['query_params' => $request->all()]);
-                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Missing authorization code from Google.');
+                $errorMsg = "Google OAuth callback missing 'code' parameter.";
+                Log::warning($errorMsg, ['query_params' => $request->all()]);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, $errorMsg);
             }
 
             // --- 2. 使用 Authorization Code 换取 Access Token ---
             $httpClient = new GuzzleClient();
             try {
+                Log::info("Exchanging code for token", ['code' => $authorizationCode]);
                 $tokenResponse = $httpClient->post('https://oauth2.googleapis.com/token', [
                     'form_params' => [
                         'client_id' => $googleClientId,
@@ -125,6 +133,7 @@ class OAuthController extends Controller
                     ]
                 ]);
                 $tokenData = json_decode($tokenResponse->getBody(), true);
+                Log::info("Token exchange successful", ['access_token_exists' => isset($tokenData['access_token'])]);
             } catch (RequestException $e) {
                 $errorMessage = 'Google OAuth Token Exchange HTTP request failed.';
                 $context = ['exception' => $e->getMessage()];
@@ -138,18 +147,21 @@ class OAuthController extends Controller
 
             $accessToken = $tokenData['access_token'] ?? null;
             if (!$accessToken) {
-                Log::error("Failed to obtain access token from Google.", ['token_response' => $tokenData]);
-                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Failed to obtain access token from Google.');
+                $errorMsg = "Failed to obtain access token from Google.";
+                Log::error($errorMsg, ['token_response' => $tokenData]);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, $errorMsg);
             }
 
             // --- 3. 使用 Access Token 获取用户信息 ---
             try {
+                Log::info("Fetching user info with access token");
                 $userResponse = $httpClient->get('https://www.googleapis.com/oauth2/v2/userinfo', [
                     'headers' => [
                         'Authorization' => 'Bearer ' . $accessToken
                     ]
                 ]);
                 $googleUserData = json_decode($userResponse->getBody(), true);
+                Log::info("User info fetched", ['email' => $googleUserData['email'] ?? 'N/A']);
             } catch (RequestException $e) {
                 $errorMessage = 'Google OAuth User Info HTTP request failed.';
                 $context = ['exception' => $e->getMessage()];
@@ -165,23 +177,28 @@ class OAuthController extends Controller
             $name = $googleUserData['name'] ?? null;
 
             if (!$email) {
-                Log::warning("Google did not provide an email address.", ['google_user_data' => $googleUserData]);
-                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Google did not provide an email address.');
+                $errorMsg = "Google did not provide an email address.";
+                Log::warning($errorMsg, ['google_user_data' => $googleUserData]);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, $errorMsg);
             }
 
             // 清理 Session
             $request->session()->forget('oauth_params');
+            Log::info("Session cleared after processing");
 
             // --- 4. 调用内部登录/注册逻辑 ---
+            Log::info("Calling internal OAuth login/register logic", ['email' => $email]);
             $result = $this->oauthLoginInternal($email, $name, $inviteCode);
+            Log::info("Internal OAuth login/register result", ['success' => $result['success'] ?? false]);
 
             // --- 5. 处理结果并重定向 ---
             if ($result['success']) {
                 $token = $result['token'];
+                Log::info("Login/Register successful, redirecting with token", ['token' => $token]);
                 return $this->handleCallbackResult($frontendRedirectUrl, true, $token, null);
             } else {
                 $errorMessage = $result['message'] ?? 'Unknown error during Google login/registration.';
-                Log::error("Google login/registration failed internally.", ['error' => $errorMessage, 'email' => $email]);
+                Log::error("Login/Register failed", ['error' => $errorMessage, 'email' => $email]);
                 return $this->handleCallbackResult($frontendRedirectUrl, false, null, $errorMessage);
             }
 
@@ -193,7 +210,7 @@ class OAuthController extends Controller
     }
 
     /**
-     * 处理 Google 回调的结果并重定向回前端
+     * 处理 Google 回调的结果并重定向回前端 (简化版，模仿 Node.js)
      * @param string $frontendRedirectUrl 前端传来的完整重定向 URL (e.g., http://localhost:8080/#/dashboard)
      * @param bool $success 是否成功
      * @param string|null $token 成功时的 V2Board token
@@ -202,36 +219,53 @@ class OAuthController extends Controller
      */
     private function handleCallbackResult(string $frontendRedirectUrl, bool $success, ?string $token, ?string $errorMessage)
     {
-        // 解析前端传来的 URL
-        $urlParts = parse_url($frontendRedirectUrl);
-        $scheme = $urlParts['scheme'] ?? 'http';
-        $host = $urlParts['host'] ?? '';
-        $port = isset($urlParts['port']) ? ':' . $urlParts['port'] : '';
-        $path = $urlParts['path'] ?? '/'; // 通常应该是 / 或 /index.html 之类的
-        $fragment = $urlParts['fragment'] ?? ''; // 通常是 #/dashboard
+        Log::info("Building final redirect URL (Simplified Node.js style)", [
+            'input_url' => $frontendRedirectUrl,
+            'success' => $success,
+            'token' => $token,
+            'error' => $errorMessage
+        ]);
 
-        // 构建基础 URL (不包含查询参数)
-        $baseUrl = $scheme . '://' . $host . $port . $path;
-        if ($fragment) {
-            $baseUrl .= '#' . $fragment;
+        // --- 核心思想：模仿 Node.js 的字符串拼接 ---
+        // Node.js: `${redirectDomain}/#/dashboard?token=${token}`
+        // 我们需要从 $frontendRedirectUrl (e.g., http://localhost:8080/#/dashboard) 得到 redirectDomain (http://localhost:8080)
+
+        // 1. Fallback
+        if (empty($frontendRedirectUrl)) {
+            $frontendRedirectUrl = config('v2board.app_url', url('/'));
         }
 
+        // 2. 解析输入的 URL
+        $parsedUrl = parse_url($frontendRedirectUrl);
+
+        if ($parsedUrl === false) {
+            Log::error("Failed to parse frontend redirect URL", ['url' => $frontendRedirectUrl]);
+            // Fallback to a simple local redirect
+            return redirect()->to('/#/login?error=' . urlencode('Invalid redirect URL provided.'));
+        }
+
+        // 3. 提取基础域名 (scheme + host + port)
+        $scheme = isset($parsedUrl['scheme']) ? $parsedUrl['scheme'] . '://' : '//';
+        $host = $parsedUrl['host'] ?? '';
+        $port = isset($parsedUrl['port']) ? ':' . $parsedUrl['port'] : '';
+        $redirectDomain = $scheme . $host . $port;
+
+        // 4. 确定 fragment (页面)
+        $fragment = $success ? '/dashboard' : '/login';
+
+        // 5. 构造查询参数
+        $queryParams = [];
         if ($success && $token) {
-            // --- 成功：在 fragment 后面添加查询参数 ?token=XYZ ---
-            // 如果 fragment 不存在，就添加到 path 后面
-            if ($fragment) {
-                $finalUrl = $scheme . '://' . $host . $port . $path . '?' . http_build_query(['token' => $token]) . '#' . $fragment;
-            } else {
-                // 如果没有 fragment，通常 fragment 是在 #/dashboard，我们假设前端期望 #/dashboard
-                $finalUrl = $scheme . '://' . $host . $port . $path . '#' . '/dashboard?' . http_build_query(['token' => $token]);
-            }
-        } else {
-            // --- 失败：重定向到登录页并携带错误信息 ---
-            $errorFragment = '/login'; // 默认错误跳转 fragment
-            $errorQuery = http_build_query(['error' => urlencode($errorMessage ?? 'Authentication failed.')]);
-            $finalUrl = $scheme . '://' . $host . $port . $path . '?' . $errorQuery . '#' . $errorFragment;
+            $queryParams['token'] = $token;
+        } else if (!$success && $errorMessage) {
+            $queryParams['error'] = urlencode($errorMessage);
         }
+        $queryString = !empty($queryParams) ? '?' . http_build_query($queryParams) : '';
 
+        // 6. 拼接最终 URL (严格模仿 Node.js 输出格式)
+        $finalUrl = $redirectDomain . '/#' . $fragment . $queryString;
+
+        Log::info("Final redirect URL (Node.js模仿)", ['url' => $finalUrl]);
         return redirect()->to($finalUrl);
     }
 
@@ -245,8 +279,8 @@ class OAuthController extends Controller
     {
         // 1. 验证 Telegram 数据 (使用系统配置的 Telegram Bot Token)
         if (!$this->verifyTelegramAuth($request->all())) {
+             Log::warning("Telegram authentication verification failed", ['query_params' => $request->all()]);
              // 对于 Telegram，我们没有前端传来的 redirect URL，需要一个默认的处理方式
-             // 可以尝试从配置获取默认前端地址，或者重定向到后端根目录（不太理想）
              $defaultFrontendUrl = config('v2board.app_url', url('/'));
              $failureRedirectUrl = $defaultFrontendUrl . '#/login?error=' . urlencode('Telegram authentication verification failed.');
              return redirect()->to($failureRedirectUrl);
@@ -261,18 +295,20 @@ class OAuthController extends Controller
         $name = $firstName;
 
         // 2. 调用内部登录/注册逻辑 (Telegram 通常不涉及邀请码)
+        Log::info("Calling internal OAuth login/register logic for Telegram", ['email' => $email]);
         $result = $this->oauthLoginInternal($email, $name);
 
         // 3. 处理响应并重定向 (同样，Telegram 回调没有前端 URL，使用默认)
         $defaultFrontendUrl = config('v2board.app_url', url('/'));
         if ($result['success']) {
             $token = $result['token'];
+            Log::info("Telegram login successful, redirecting with token", ['token' => $token]);
             // 成功：重定向到仪表盘
             $successRedirectUrl = $defaultFrontendUrl . '#/dashboard?token=' . $token;
             return redirect()->to($successRedirectUrl);
         } else {
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/registration.';
-            Log::error("Telegram login/registration failed internally.", ['error' => $errorMessage, 'tg_id' => $tgId]);
+            Log::error("Telegram login/registration failed", ['error' => $errorMessage, 'tg_id' => $tgId]);
             // 失败：重定向到登录页
             $failureRedirectUrl = $defaultFrontendUrl . '#/login?error=' . urlencode($errorMessage);
             return redirect()->to($failureRedirectUrl);
