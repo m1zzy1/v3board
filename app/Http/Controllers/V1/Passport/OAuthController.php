@@ -11,18 +11,19 @@ use App\Utils\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use GuzzleHttp\Client as GuzzleClient; // 使用 GuzzleHttp
-use GuzzleHttp\Exception\RequestException; // 处理 Guzzle 异常
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Exception\RequestException;
 
 class OAuthController extends Controller
 {
     /**
      * 统一 OAuth 入口 (POST)
      * 接收 type (google), code (invite_code), redirect_domain
-     * 注意：Telegram 通常由前端直接触发，不通过此入口
+     * 注意：此接口接收前端 POST 请求，处理后重定向浏览器到 Google
      */
     public function auth(Request $request)
     {
+        // 从 POST 请求体中获取参数
         $type = $request->input('type');
         $code = $request->input('code', ''); // 邀请码
         $redirectDomain = $request->input('redirect_domain', '');
@@ -32,7 +33,7 @@ class OAuthController extends Controller
         }
 
         if ($type === 'google') {
-            // 将参数存入 Session 以便后续回调使用
+            // 将参数存入 Laravel Session 以便后续回调使用
             session([
                 'oauth_params' => [
                     'code' => $code,
@@ -40,30 +41,40 @@ class OAuthController extends Controller
                 ]
             ]);
 
-            // --- 从 .env 读取 Google OAuth 配置 ---
+            // --- 从配置读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
-            $googleClientSecret = config('services.google.client_secret');
+            $googleClientSecret = config('services.google.client_secret'); // 虽然这一步用不到 secret，但为了完整性检查
 
-            if (!$googleClientId || !$googleClientSecret) {
-                Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the .env file.");
+            if (!$googleClientId) { // 通常 Client Secret 也是必须的，但构造 URL 时不需要
+                Log::error("Google OAuth Client ID is not configured.");
                 return response()->json(['error' => 'Google OAuth is not properly configured on the server.'], 500);
             }
 
-            // --- 动态设置 Google Redirect URI ---
-            $redirectUri = ($redirectDomain ? rtrim($redirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
+            // --- 动态设置 Google Redirect URI (回调地址) ---
+            // 这个回调地址必须在 Google Cloud Console 中配置为 "Authorized redirect URIs"
+            $redirectUri = url('/api/v1/passport/oauth/google/callback');
+            // 注意：这里没有使用 $redirectDomain 来动态构建回调 URI，
+            // 因为 Google 要求回调地址预先在 Console 中注册。
+            // $redirect_domain 用于最终从前端重定向回前端。
 
             // --- 构造 Google 授权 URL ---
             $authUrl = 'https://accounts.google.com/o/oauth2/auth?' . http_build_query([
                 'client_id' => $googleClientId,
-                'redirect_uri' => $redirectUri,
+                'redirect_uri' => $redirectUri, // 固定的后端回调地址
                 'scope' => 'email profile', // 请求访问邮箱和基本资料
                 'response_type' => 'code', // 请求 Authorization Code
                 'access_type' => 'offline', // 请求 refresh token (可选)
                 'prompt' => 'consent' // 强制显示同意界面 (可选，确保能获取到 code)
             ]);
 
-            // 重定向用户到 Google
+            // --- 返回 302 重定向，让浏览器跳转到 Google ---
+            // 这是关键：不要返回 JSON，要返回重定向
             return redirect($authUrl);
+            
+        } else if ($type === 'telegram') {
+             // 如果需要处理 Telegram (虽然通常 Telegram 是前端直接跳转)
+             // 可以返回一个指向 Telegram 处理逻辑的 URL
+             return response()->json(['url' => route('oauth.telegram')]); // 需要定义对应路由
         } else {
             return response()->json(['error' => 'Unsupported OAuth type'], 400);
         }
@@ -76,17 +87,18 @@ class OAuthController extends Controller
     public function handleGoogleCallback(Request $request)
     {
         try {
-            // --- 从 Session 获取之前存储的参数 ---
+            // --- 从 Laravel Session 获取之前存储的参数 ---
             $oauthParams = session('oauth_params', []);
-            $storedRedirectDomain = $oauthParams['redirect_domain'] ?? '';
-            $redirectUri = ($storedRedirectDomain ? rtrim($storedRedirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
+            $inviteCode = $oauthParams['code'] ?? '';
+            $frontendRedirectDomain = $oauthParams['redirect_domain'] ?? '';
 
-            // --- 从 .env 读取 Google OAuth 配置 ---
+            // --- 从配置读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
             $googleClientSecret = config('services.google.client_secret');
 
             if (!$googleClientId || !$googleClientSecret) {
-                Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the .env file (Callback).");
+                Log::error("Google OAuth credentials (Client ID or Secret) are not configured.");
+                // 重定向到前端错误页
                 return redirect()->to($this->getFailureRedirectUrl('Google OAuth is not properly configured on the server.'));
             }
 
@@ -106,12 +118,11 @@ class OAuthController extends Controller
                         'client_secret' => $googleClientSecret,
                         'code' => $authorizationCode,
                         'grant_type' => 'authorization_code',
-                        'redirect_uri' => $redirectUri,
+                        'redirect_uri' => url('/api/v1/passport/oauth/google/callback'), // 必须与请求时一致
                     ]
                 ]);
                 $tokenData = json_decode($tokenResponse->getBody(), true);
             } catch (RequestException $e) {
-                // 捕获 Guzzle HTTP 请求异常 (网络错误, 4xx, 5xx 响应)
                 $errorMessage = 'Google OAuth Token Exchange HTTP request failed.';
                 $context = ['exception' => $e->getMessage()];
                 if ($e->hasResponse()) {
@@ -137,7 +148,6 @@ class OAuthController extends Controller
                 ]);
                 $googleUserData = json_decode($userResponse->getBody(), true);
             } catch (RequestException $e) {
-                // 捕获 Guzzle HTTP 请求异常 (网络错误, 4xx, 5xx 响应)
                 $errorMessage = 'Google OAuth User Info HTTP request failed.';
                 $context = ['exception' => $e->getMessage()];
                 if ($e->hasResponse()) {
@@ -156,9 +166,6 @@ class OAuthController extends Controller
                 return redirect()->to($this->getFailureRedirectUrl('Google did not provide an email address.'));
             }
 
-            $inviteCode = $oauthParams['code'] ?? '';
-            $redirectDomain = $storedRedirectDomain;
-
             // 清理 Session
             $request->session()->forget('oauth_params');
 
@@ -168,12 +175,13 @@ class OAuthController extends Controller
             if ($result['success']) {
                 $token = $result['token'];
 
-                // 构建重定向 URL
-                $finalRedirectUrl = $redirectDomain
-                    ? rtrim($redirectDomain, '/') . '/#/dashboard?token=' . $token
-                    : url('/#/dashboard?token=' . $token); // 默认重定向到当前域名
+                // --- 5. 构建最终重定向到前端的 URL ---
+                // 使用前端最初提供的 redirect_domain
+                $finalRedirectUrl = $frontendRedirectDomain
+                    ? rtrim($frontendRedirectDomain, '/') . '/#/dashboard?token=' . $token
+                    : url('/#/dashboard?token=' . $token); // 如果没提供，则重定向到后端默认的前端地址
 
-                // 重定向到前端
+                // --- 6. 重定向到前端 ---
                 return redirect()->to($finalRedirectUrl);
 
             } else {
@@ -217,6 +225,7 @@ class OAuthController extends Controller
         if ($result['success']) {
             $token = $result['token'];
             // 重定向到默认仪表盘或根据需要处理
+            // 这里没有前端提供的 redirect_domain，可以重定向到配置的默认前端地址
             $finalRedirectUrl = url('/#/dashboard?token=' . $token);
             return redirect()->to($finalRedirectUrl);
         } else {
@@ -360,6 +369,7 @@ class OAuthController extends Controller
     private function getFailureRedirectUrl($message = 'Authentication failed.')
     {
         // 重定向到前端的通用错误处理页面或登录页并带上错误信息
+        // 这里可以考虑重定向到一个通用的错误页面，或者前端登录页
         return url('/#/login?error=' . urlencode($message));
     }
 
