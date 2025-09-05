@@ -561,11 +561,13 @@ class OAuthController extends Controller
         }
         
         // 5. 执行登录逻辑
+        // 如果用户不存在，oauthLoginInternal 会处理创建新用户的逻辑
+        $email = $user ? $user->email : "tg_{$tgId}@" . (parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com');
         $firstName = $request->input('first_name', 'TG User');
         $name = $firstName;
         
-        Log::info("Calling internal OAuth login/register logic for Telegram", ['email' => $user->email]);
-        $result = $this->oauthLoginInternal($user->email, $name);
+        Log::info("Calling internal OAuth login/register logic for Telegram", ['email' => $email]);
+        $result = $this->oauthLoginInternal($email, $name);
         
         if ($result['success']) {
             $token = $result['token'];
