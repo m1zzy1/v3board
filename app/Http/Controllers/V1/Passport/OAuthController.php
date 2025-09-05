@@ -88,17 +88,24 @@ class OAuthController extends Controller
      */
     public function handleGoogleCallback(Request $request)
     {
+        // 在 try 块开始前就获取 Session 数据，确保 catch 块也能访问
+        $oauthParams = session('oauth_params', []);
+        $inviteCode = $oauthParams['invite_code'] ?? ''; 
+        $frontendRedirectUrl = $oauthParams['frontend_redirect_url'] ?? '';
+        
+        // 记录 Session 数据，方便调试
+        Log::info("Google OAuth Callback initiated", [
+            'session_params' => $oauthParams,
+            'invite_code' => $inviteCode,
+            'frontend_redirect_url_from_session' => $frontendRedirectUrl
+        ]);
+
         try {
-            // 开始处理前记录日志
-            Log::info("Google OAuth Callback received", ['query_params' => $request->all()]);
-
             // --- 从 Laravel Session 获取之前存储的参数 ---
-            $oauthParams = session('oauth_params', []);
-            $inviteCode = $oauthParams['invite_code'] ?? ''; // 从 Session 取出邀请码
-            // --- 修正：从 Session 取出前端完整的重定向 URL ---
-            $frontendRedirectUrl = $oauthParams['frontend_redirect_url'] ?? '';
-
-            Log::info("Retrieved from session", ['invite_code' => $inviteCode, 'frontend_redirect_url' => $frontendRedirectUrl]);
+            // (已提前获取，这里可以省略或保留用于注释)
+            // $oauthParams = session('oauth_params', []);
+            // $inviteCode = $oauthParams['invite_code'] ?? ''; 
+            // $frontendRedirectUrl = $oauthParams['frontend_redirect_url'] ?? '';
 
             // --- 从配置读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
@@ -107,6 +114,7 @@ class OAuthController extends Controller
             if (!$googleClientId || !$googleClientSecret) {
                 $errorMsg = "Google OAuth credentials (Client ID or Secret) are not configured.";
                 Log::error($errorMsg);
+                // 在调用 handleCallbackResult 前确保变量可用
                 return $this->handleCallbackResult($frontendRedirectUrl, false, null, $errorMsg);
             }
 
@@ -128,7 +136,6 @@ class OAuthController extends Controller
                         'client_secret' => $googleClientSecret,
                         'code' => $authorizationCode,
                         'grant_type' => 'authorization_code',
-                        // *** 再次强调：必须使用与请求时完全一致的 redirect_uri ***
                         'redirect_uri' => url('/api/v1/passport/oauth/google/callback'),
                     ]
                 ]);
@@ -203,9 +210,14 @@ class OAuthController extends Controller
             }
 
         } catch (\Exception $e) {
-            // 捕获其他所有异常
-            Log::error("Google OAuth Callback Error: " . $e->getMessage(), ['exception' => $e]);
-            return $this->handleCallbackResult($frontendRedirectUrl ?? '', false, null, 'An internal error occurred during Google authentication.');
+            // --- 关键修改点：确保在 catch 块中也传递正确的 $frontendRedirectUrl ---
+            Log::error("Google OAuth Callback Error (caught in main catch block): " . $e->getMessage(), [
+                'exception' => $e,
+                'frontend_redirect_url_available' => !empty($frontendRedirectUrl), // 检查变量是否为空
+                'frontend_redirect_url_value' => $frontendRedirectUrl // 记录变量的实际值
+            ]);
+            // 即使是内部错误，也尝试跳转到前端指定的页面
+            return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'An internal error occurred during Google authentication.');
         }
     }
 
