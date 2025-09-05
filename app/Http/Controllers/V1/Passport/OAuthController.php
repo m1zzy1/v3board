@@ -18,7 +18,7 @@ class OAuthController extends Controller
 {
     /**
      * 统一 OAuth 入口 (POST)
-     * 接收 type (google), code (invite_code), redirect_domain
+     * 接收 type (google), code (invite_code), redirect (frontend redirect url)
      * 返回 Google OAuth 的 URL，供前端在新窗口打开
      */
     public function auth(Request $request)
@@ -26,25 +26,24 @@ class OAuthController extends Controller
         // 从 POST 请求体中获取参数
         $type = $request->input('type');
         $code = $request->input('code', ''); // 邀请码
-        $redirectDomain = $request->input('redirect_domain', ''); // 前端提供的最终重定向地址
+        // --- 修正：获取前端传来的 redirect URL ---
+        $frontendRedirectUrl = $request->input('redirect', ''); // 前端提供的最终重定向地址 (带 #/dashboard)
 
         if (!$type) {
             return response()->json(['error' => 'Missing type parameter'], 400);
         }
 
         if ($type === 'google') {
-            // 将参数存入 Laravel Session 以便后续回调使用
-            // 注意：这里存的是前端提供的最终重定向地址和邀请码
+            // --- 修正：将前端的完整重定向 URL 存入 Session ---
             session([
                 'oauth_params' => [
                     'invite_code' => $code, // 前端传来的 code 实际是邀请码
-                    'frontend_redirect_domain' => $redirectDomain // 前端域名，用于最终跳回前端
+                    'frontend_redirect_url' => $frontendRedirectUrl // 前端传来的完整 URL (e.g., http://localhost:8080/#/dashboard)
                 ]
             ]);
 
             // --- 从配置读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
-            // $googleClientSecret = config('services.google.client_secret'); // 这一步用不到
 
             if (!$googleClientId) {
                 Log::error("Google OAuth Client ID is not configured.");
@@ -52,13 +51,13 @@ class OAuthController extends Controller
             }
 
             // --- 固定 Google Redirect URI (回调地址) ---
-            // 这个回调地址必须在 Google Cloud Console 中配置为 "Authorized redirect URIs"
-            $callbackUri = url('/api/v1/passport/oauth/google/callback');
+            // *** 这个是关键：必须是在 Google Cloud Console 中注册的那个固定的后端回调地址 ***
+            $googleCallbackUri = url('/api/v1/passport/oauth/google/callback');
 
             // --- 构造 Google 授权 URL ---
             $authUrl = 'https://accounts.google.com/o/oauth2/auth?' . http_build_query([
                 'client_id' => $googleClientId,
-                'redirect_uri' => $callbackUri, // 固定的后端回调地址
+                'redirect_uri' => $googleCallbackUri, // *** 使用固定的后端回调 URI ***
                 'scope' => 'email profile', // 请求访问邮箱和基本资料
                 'response_type' => 'code', // 请求 Authorization Code
                 'access_type' => 'offline', // 请求 refresh token (可选)
@@ -66,7 +65,6 @@ class OAuthController extends Controller
             ]);
 
             // --- 返回包含 Google 授权 URL 的 JSON 响应 ---
-            // 这样前端就可以用 window.open 打开它
             return response()->json([
                 'data' => [
                     'url' => $authUrl
@@ -74,15 +72,11 @@ class OAuthController extends Controller
             ]);
             
         } else if ($type === 'telegram') {
-             // Telegram 通常由前端直接处理，这里可以返回一个特定的处理地址
-             // 或者像之前一样返回一个提示
              return response()->json([
                 'data' => [
-                    'url' => route('oauth.telegram') // 需要确保有这个命名路由
+                    'url' => url('/api/v1/passport/oauth/telegram') // Telegram 直接跳转到后端处理地址
                 ]
              ]);
-             // 如果没有专门的 Telegram 路由，可以返回一个通用的
-             // return response()->json(['data' => ['url' => url('/api/v1/passport/oauth/telegram')]]);
         } else {
             return response()->json(['error' => 'Unsupported OAuth type'], 400);
         }
@@ -98,7 +92,8 @@ class OAuthController extends Controller
             // --- 从 Laravel Session 获取之前存储的参数 ---
             $oauthParams = session('oauth_params', []);
             $inviteCode = $oauthParams['invite_code'] ?? ''; // 从 Session 取出邀请码
-            $frontendRedirectDomain = $oauthParams['frontend_redirect_domain'] ?? ''; // 从 Session 取出前端域名
+            // --- 修正：从 Session 取出前端完整的重定向 URL ---
+            $frontendRedirectUrl = $oauthParams['frontend_redirect_url'] ?? '';
 
             // --- 从配置读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
@@ -106,17 +101,14 @@ class OAuthController extends Controller
 
             if (!$googleClientId || !$googleClientSecret) {
                 Log::error("Google OAuth credentials (Client ID or Secret) are not configured.");
-                // 构建一个失败的前端重定向 URL
-                $failureUrl = $this->buildFrontendRedirectUrl($frontendRedirectDomain, null, 'Google OAuth is not properly configured on the server.');
-                return redirect()->to($failureUrl);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Google OAuth is not properly configured on the server.');
             }
 
             // --- 1. 从回调 URL 获取 Authorization Code ---
             $authorizationCode = $request->input('code');
             if (!$authorizationCode) {
                 Log::warning("Google OAuth callback missing 'code' parameter.", ['query_params' => $request->all()]);
-                $failureUrl = $this->buildFrontendRedirectUrl($frontendRedirectDomain, null, 'Missing authorization code from Google.');
-                return redirect()->to($failureUrl);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Missing authorization code from Google.');
             }
 
             // --- 2. 使用 Authorization Code 换取 Access Token ---
@@ -128,7 +120,8 @@ class OAuthController extends Controller
                         'client_secret' => $googleClientSecret,
                         'code' => $authorizationCode,
                         'grant_type' => 'authorization_code',
-                        'redirect_uri' => url('/api/v1/passport/oauth/google/callback'), // 必须与请求时一致
+                        // *** 再次强调：必须使用与请求时完全一致的 redirect_uri ***
+                        'redirect_uri' => url('/api/v1/passport/oauth/google/callback'),
                     ]
                 ]);
                 $tokenData = json_decode($tokenResponse->getBody(), true);
@@ -140,15 +133,13 @@ class OAuthController extends Controller
                     $context['response_status'] = $e->getResponse()->getStatusCode();
                 }
                 Log::error($errorMessage, $context);
-                $failureUrl = $this->buildFrontendRedirectUrl($frontendRedirectDomain, null, 'Network error during Google token exchange.');
-                return redirect()->to($failureUrl);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Network error during Google token exchange.');
             }
 
             $accessToken = $tokenData['access_token'] ?? null;
             if (!$accessToken) {
                 Log::error("Failed to obtain access token from Google.", ['token_response' => $tokenData]);
-                $failureUrl = $this->buildFrontendRedirectUrl($frontendRedirectDomain, null, 'Failed to obtain access token from Google.');
-                return redirect()->to($failureUrl);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Failed to obtain access token from Google.');
             }
 
             // --- 3. 使用 Access Token 获取用户信息 ---
@@ -167,8 +158,7 @@ class OAuthController extends Controller
                     $context['response_status'] = $e->getResponse()->getStatusCode();
                 }
                 Log::error($errorMessage, $context);
-                $failureUrl = $this->buildFrontendRedirectUrl($frontendRedirectDomain, null, 'Network error while fetching user info from Google.');
-                return redirect()->to($failureUrl);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Network error while fetching user info from Google.');
             }
 
             $email = $googleUserData['email'] ?? null;
@@ -176,8 +166,7 @@ class OAuthController extends Controller
 
             if (!$email) {
                 Log::warning("Google did not provide an email address.", ['google_user_data' => $googleUserData]);
-                $failureUrl = $this->buildFrontendRedirectUrl($frontendRedirectDomain, null, 'Google did not provide an email address.');
-                return redirect()->to($failureUrl);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, 'Google did not provide an email address.');
             }
 
             // 清理 Session
@@ -186,59 +175,64 @@ class OAuthController extends Controller
             // --- 4. 调用内部登录/注册逻辑 ---
             $result = $this->oauthLoginInternal($email, $name, $inviteCode);
 
-            // --- 5. 构建最终重定向到前端的 URL ---
-            $finalRedirectUrl = $this->buildFrontendRedirectUrl($frontendRedirectDomain, $result['token'] ?? null, $result['message'] ?? null);
-
-            // --- 6. 重定向到前端 ---
-            return redirect()->to($finalRedirectUrl);
+            // --- 5. 处理结果并重定向 ---
+            if ($result['success']) {
+                $token = $result['token'];
+                return $this->handleCallbackResult($frontendRedirectUrl, true, $token, null);
+            } else {
+                $errorMessage = $result['message'] ?? 'Unknown error during Google login/registration.';
+                Log::error("Google login/registration failed internally.", ['error' => $errorMessage, 'email' => $email]);
+                return $this->handleCallbackResult($frontendRedirectUrl, false, null, $errorMessage);
+            }
 
         } catch (\Exception $e) {
             // 捕获其他所有异常
             Log::error("Google OAuth Callback Error: " . $e->getMessage(), ['exception' => $e]);
-            $failureUrl = $this->buildFrontendRedirectUrl($frontendRedirectDomain ?? '', null, 'An internal error occurred during Google authentication.');
-            return redirect()->to($failureUrl);
+            return $this->handleCallbackResult($frontendRedirectUrl ?? '', false, null, 'An internal error occurred during Google authentication.');
         }
     }
 
     /**
-     * 构建重定向到前端的 URL
-     * @param string $frontendDomain 前端域名 (e.g., http://localhost:8080)
-     * @param string|null $token V2Board 返回的认证 token
-     * @param string|null $errorMessage 错误信息
-     * @return string
+     * 处理 Google 回调的结果并重定向回前端
+     * @param string $frontendRedirectUrl 前端传来的完整重定向 URL (e.g., http://localhost:8080/#/dashboard)
+     * @param bool $success 是否成功
+     * @param string|null $token 成功时的 V2Board token
+     * @param string|null $errorMessage 失败时的错误信息
+     * @return \Illuminate\Http\RedirectResponse
      */
-    private function buildFrontendRedirectUrl(string $frontendDomain, ?string $token, ?string $errorMessage): string
+    private function handleCallbackResult(string $frontendRedirectUrl, bool $success, ?string $token, ?string $errorMessage)
     {
-        $baseRedirectPath = '/#/dashboard'; // 默认前端路径
+        // 解析前端传来的 URL
+        $urlParts = parse_url($frontendRedirectUrl);
+        $scheme = $urlParts['scheme'] ?? 'http';
+        $host = $urlParts['host'] ?? '';
+        $port = isset($urlParts['port']) ? ':' . $urlParts['port'] : '';
+        $path = $urlParts['path'] ?? '/'; // 通常应该是 / 或 /index.html 之类的
+        $fragment = $urlParts['fragment'] ?? ''; // 通常是 #/dashboard
 
-        if ($errorMessage) {
-            // 如果有错误，重定向到登录页并携带错误信息
-            $baseRedirectPath = '/#/login';
-            $queryParts = ['error' => urlencode($errorMessage)];
-        } else if ($token) {
-            // 如果成功，重定向到仪表盘并携带 token
-            $queryParts = ['token' => $token];
-        } else {
-            // 其他情况，也重定向到登录页
-            $baseRedirectPath = '/#/login';
-            $queryParts = ['error' => urlencode('Authentication failed.')];
+        // 构建基础 URL (不包含查询参数)
+        $baseUrl = $scheme . '://' . $host . $port . $path;
+        if ($fragment) {
+            $baseUrl .= '#' . $fragment;
         }
 
-        $queryString = http_build_query($queryParts);
-        $fullPath = $baseRedirectPath . ($queryString ? '?' . $queryString : '');
-
-        // 如果提供了前端域名，则使用它；否则使用后端配置的默认前端地址
-        if ($frontendDomain) {
-            return rtrim($frontendDomain, '/') . $fullPath;
-        } else {
-            // Fallback to default app url if configured, or backend root
-            $defaultFrontendUrl = config('v2board.app_url'); // e.g., https://your-frontend.com
-            if ($defaultFrontendUrl) {
-                return rtrim($defaultFrontendUrl, '/') . $fullPath;
+        if ($success && $token) {
+            // --- 成功：在 fragment 后面添加查询参数 ?token=XYZ ---
+            // 如果 fragment 不存在，就添加到 path 后面
+            if ($fragment) {
+                $finalUrl = $scheme . '://' . $host . $port . $path . '?' . http_build_query(['token' => $token]) . '#' . $fragment;
             } else {
-                return url($fullPath); // Fallback to backend root (not ideal)
+                // 如果没有 fragment，通常 fragment 是在 #/dashboard，我们假设前端期望 #/dashboard
+                $finalUrl = $scheme . '://' . $host . $port . $path . '#' . '/dashboard?' . http_build_query(['token' => $token]);
             }
+        } else {
+            // --- 失败：重定向到登录页并携带错误信息 ---
+            $errorFragment = '/login'; // 默认错误跳转 fragment
+            $errorQuery = http_build_query(['error' => urlencode($errorMessage ?? 'Authentication failed.')]);
+            $finalUrl = $scheme . '://' . $host . $port . $path . '?' . $errorQuery . '#' . $errorFragment;
         }
+
+        return redirect()->to($finalUrl);
     }
 
 
@@ -251,10 +245,11 @@ class OAuthController extends Controller
     {
         // 1. 验证 Telegram 数据 (使用系统配置的 Telegram Bot Token)
         if (!$this->verifyTelegramAuth($request->all())) {
-             // Telegram 验证失败，也重定向回前端并提示错误
-             $frontendDomain = ''; // Telegram 回调通常不带前端域名，可以尝试从其他地方获取或使用默认
-             $failureUrl = $this->buildFrontendRedirectUrl($frontendDomain, null, 'Telegram authentication verification failed.');
-             return redirect()->to($failureUrl);
+             // 对于 Telegram，我们没有前端传来的 redirect URL，需要一个默认的处理方式
+             // 可以尝试从配置获取默认前端地址，或者重定向到后端根目录（不太理想）
+             $defaultFrontendUrl = config('v2board.app_url', url('/'));
+             $failureRedirectUrl = $defaultFrontendUrl . '#/login?error=' . urlencode('Telegram authentication verification failed.');
+             return redirect()->to($failureRedirectUrl);
         }
 
         $tgId = $request->input('id');
@@ -268,18 +263,19 @@ class OAuthController extends Controller
         // 2. 调用内部登录/注册逻辑 (Telegram 通常不涉及邀请码)
         $result = $this->oauthLoginInternal($email, $name);
 
-        // 3. 处理响应并重定向
-        // Telegram 回调通常不带前端域名，buildFrontendRedirectUrl 内部有 fallback 逻辑
-        $frontendDomain = ''; 
+        // 3. 处理响应并重定向 (同样，Telegram 回调没有前端 URL，使用默认)
+        $defaultFrontendUrl = config('v2board.app_url', url('/'));
         if ($result['success']) {
             $token = $result['token'];
-            $successUrl = $this->buildFrontendRedirectUrl($frontendDomain, $token, null);
-            return redirect()->to($successUrl);
+            // 成功：重定向到仪表盘
+            $successRedirectUrl = $defaultFrontendUrl . '#/dashboard?token=' . $token;
+            return redirect()->to($successRedirectUrl);
         } else {
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/registration.';
             Log::error("Telegram login/registration failed internally.", ['error' => $errorMessage, 'tg_id' => $tgId]);
-            $failureUrl = $this->buildFrontendRedirectUrl($frontendDomain, null, $errorMessage);
-            return redirect()->to($failureUrl);
+            // 失败：重定向到登录页
+            $failureRedirectUrl = $defaultFrontendUrl . '#/login?error=' . urlencode($errorMessage);
+            return redirect()->to($failureRedirectUrl);
         }
     }
 
