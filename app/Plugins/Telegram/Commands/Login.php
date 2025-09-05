@@ -115,57 +115,65 @@ class Login extends Telegram {
                 if ($user) {
                     // 检查是否有明文密码返回
                     $plainPassword = $responseData['data']['plain_password'] ?? null;
-                    
+
                     if ($plainPassword) {
                         // 使用 Markdown 格式发送账户信息给用户
+                        // 转义下划线以避免 Markdown 解析问题
+                        $escapedEmail = str_replace('_', '\_', $user->email);
                         $accountInfo = "✅ **注册成功！**
 
 欢迎使用我们的服务！
 
 您的账户信息：
-📧 **邮箱**: `{$user->email}`
+📧 **邮箱**: `{$escapedEmail}`
 🔑 **密码**: `{$plainPassword}`
 
 请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
-                        
+
                         $this->sendReply($message, $accountInfo, 'markdown');
                     } else {
                         // 登录成功，没有明文密码说明是已存在的用户
+                        // 转义下划线以避免 Markdown 解析问题
+                        $escapedEmail = str_replace('_', '\_', $user->email);
                         $this->sendReply($message, "✅ 登录成功！
 
 您已成功登录到网站。
-用户邮箱: {$user->email}", 'markdown');
+用户邮箱: {$escapedEmail}", 'markdown');
                     }
                 } else {
                     // 如果通过 Telegram ID 找不到用户，尝试通过邮箱查找
                     // 这可能是为了兼容旧的逻辑
-                    $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com';
+                    $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'cloxy.io';
                     $email = "tg_{$tgId}@{$appUrlHost}";
                     $user = User::where('email', $email)->first();
-                    
+
                     if ($user) {
                         // 检查是否有明文密码返回
                         $plainPassword = $responseData['data']['plain_password'] ?? null;
-                        
+
                         if ($plainPassword) {
                             // 使用 Markdown 格式发送账户信息给用户
+                            // 转义下划线以避免 Markdown 解析问题
+                            $escapedEmail = str_replace('_', '\_', $user->email);
                             $accountInfo = "✅ **注册成功！**
 
 欢迎使用我们的服务！
 
 您的账户信息：
-📧 **邮箱**: `{$user->email}`
+📧 **邮箱**: `{$escapedEmail}`
 🔑 **密码**: `{$plainPassword}`
 
 请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
-                            
+
                             $this->sendReply($message, $accountInfo, 'markdown');
                         } else {
                             // 登录成功，没有明文密码说明是已存在的用户
+                            // 转义下划线以避免 Markdown 解析问题
+                            $escapedEmail = str_replace('_', '\_', $user->email);
                             $this->sendReply($message, "✅ 登录成功！
 
 您已成功登录到网站。
-用户邮箱: {$user->email}", 'markdown');
+用户邮箱: {$escapedEmail}", 'markdown');
                         }
                     } else {
                         $this->sendReply($message, "✅ 操作成功！
