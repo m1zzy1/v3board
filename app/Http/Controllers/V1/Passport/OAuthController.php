@@ -16,6 +16,17 @@ use GuzzleHttp\Exception\RequestException;
 
 class OAuthController extends Controller
 {
+
+    // 辅助函数：Base64 URL 安全编码
+    private function base64url_encode($data) {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
+    // 辅助函数：Base64 URL 安全解码
+    private function base64url_decode($data) {
+        return base64_decode(str_pad(strtr($data, '-_', '+/'), strlen($data) % 4, '=', STR_PAD_RIGHT));
+    }
+
     /**
      * 统一 OAuth 入口 (POST)
      * 接收 type (google), code (invite_code), redirect (frontend redirect url)
@@ -26,7 +37,7 @@ class OAuthController extends Controller
         // 从 POST 请求体中获取参数
         $type = $request->input('type');
         $code = $request->input('code', ''); // 邀请码
-        // --- 修正：获取前端传来的 redirect URL ---
+        // --- 获取前端传来的 redirect URL ---
         $frontendRedirectUrl = $request->input('redirect', ''); // 前端提供的最终重定向地址 (e.g., http://localhost:8080/verify.html)
 
         if (!$type) {
@@ -34,16 +45,6 @@ class OAuthController extends Controller
         }
 
         if ($type === 'google') {
-            // --- 核心：将前端传来的完整 redirect URL 存入 Session ---
-            // *** 调试日志 1: 存储时 ***
-            \Log::info('AUTH METHOD: Storing redirect URL in session', [
-                'url_to_store' => $frontendRedirectUrl,
-                'session_id' => \Session::getId()
-            ]);
-            session([
-                'oauth_redirect_url' => $frontendRedirectUrl // 存储完整的前端 URL
-            ]);
-
             // --- 从配置读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
 
@@ -56,6 +57,11 @@ class OAuthController extends Controller
             // *** 这个是关键：必须是在 Google Cloud Console 中注册的那个固定的后端回调地址 ***
             $googleCallbackUri = url('/api/v1/passport/oauth/google/callback');
 
+            // --- 将 redirect URL 编码并作为 state 参数传递 ---
+            // Google OAuth 允许使用 state 参数来防止 CSRF 攻击并传递自定义数据
+            $encodedRedirectUrl = $this->base64url_encode($frontendRedirectUrl);
+            $state = $encodedRedirectUrl; // 可以添加其他信息，用分隔符分开
+
             // --- 构造 Google 授权 URL ---
             $authUrl = 'https://accounts.google.com/o/oauth2/auth?' . http_build_query([
                 'client_id' => $googleClientId,
@@ -63,7 +69,8 @@ class OAuthController extends Controller
                 'scope' => 'email profile', // 请求访问邮箱和基本资料
                 'response_type' => 'code', // 请求 Authorization Code
                 'access_type' => 'offline', // 请求 refresh token (可选)
-                'prompt' => 'consent' // 强制显示同意界面 (可选)
+                'prompt' => 'consent', // 强制显示同意界面 (可选)
+                'state' => $state // *** 传递编码后的 redirect URL ***
             ]);
 
             // --- 返回包含 Google 授权 URL 的 JSON 响应 ---
@@ -87,40 +94,34 @@ class OAuthController extends Controller
     /**
      * Google OAuth 回调处理 (GET)
      * 处理 Google 返回的 Authorization Code，并用它换取 Access Token 和用户信息
-     * 然后根据 Session 中存储的 redirect URL 进行最终跳转。
+     * 然后根据 URL 参数中的 redirect URL 进行最终跳转。
      */
     public function handleGoogleCallback(Request $request)
     {
         // --- 1. 准备变量 ---
-        $frontendCallbackUrl = ''; // 从 Session 读取的前端 URL
+        $frontendCallbackUrl = ''; // 从 URL 参数或 state 中读取的前端 URL
         $token = null;             // V2Board 返回的 token
         $errorMessage = null;      // 错误信息
-
-        // --- 调试日志 2: 回调开始时打印整个 Session ---
-        \Log::info('CALLBACK METHOD: Full session data at start of callback', [
-            'all_session_data' => \Session::all(),
-            'session_id' => \Session::getId()
-        ]);
 
         try {
             Log::info("Google OAuth Callback initiated", ['query_params' => $request->all()]);
 
-            // --- 2. 从 Session 获取前端传来的 redirect URL ---
-            // *** 这是关键：从 Session 读取之前存储的前端 URL ***
-            // *** 调试日志 3: 读取时 ***
-            $frontendCallbackUrl = session('oauth_redirect_url', '');
-            \Log::info('CALLBACK METHOD: Retrieved redirect URL from session', [
-                'url_retrieved' => $frontendCallbackUrl,
-                'session_id' => \Session::getId()
-            ]);
-            Log::info("Retrieved frontend callback URL from session", ['url' => $frontendCallbackUrl]);
+            // --- 2. 从 URL 查询参数或 Google state 参数获取 redirect URL ---
+            // Google 推荐使用 state 参数来防止 CSRF，我们可以借用它来传递 redirect URL
+            $state = $request->input('state', '');
+            if (!empty($state)) {
+                // 解码从 state 传来的 redirect URL
+                $frontendCallbackUrl = $this->base64url_decode($state);
+                Log::info("Retrieved frontend callback URL from 'state' parameter", ['decoded_url' => $frontendCallbackUrl]);
+            }
 
+            // 如果 state 里没有，或者解码失败，可以 fallback 到一个默认 URL（不太理想）
             if (empty($frontendCallbackUrl)) {
-                $errorMsg = "No frontend callback URL found in session. Cannot redirect user.";
-                Log::error($errorMsg);
-                $errorMessage = $errorMsg;
-                // 没有前端 URL，无法跳转，直接抛出异常到 catch 块
-                throw new \Exception($errorMsg);
+                 $errorMsg = "No frontend callback URL found in 'state' parameter.";
+                 Log::warning($errorMsg);
+                 $errorMessage = $errorMsg;
+                 // 没有前端 URL，无法跳转，直接抛出异常到 catch 块
+                 throw new \Exception($errorMsg);
             }
 
             // --- 3. 从配置读取 Google OAuth 配置 ---
@@ -211,16 +212,9 @@ class OAuthController extends Controller
                 throw new \Exception($errorMsg);
             }
 
-            // --- 7. 从 Session 或其他地方获取邀请码 (auth 方法中可能也存了) ---
-            // 为了简化，我们假设 auth 方法只存了 redirect_url。
-            // 如果需要 code(invite_code)，可以要求前端在 auth 时也通过 session 存一下。
-            // 或者，如果前端 auth 时的 'code' 参数就是 invite_code，
-            // 我们需要在 auth 时将它也存入 session，例如 session(['oauth_invite_code' => $code])
-            // 这里我们暂时从 auth 的 input 里获取（但这在回调里拿不到）
-            // 最稳妥的方式是在 auth 时存入 session
-            // $inviteCode = session('oauth_invite_code', ''); // 在 auth 时需要设置这个
-            // 但现在我们先用一个空字符串，或者从 config 读取默认邀请码
-            $inviteCode = ''; // TODO: Implement proper invite code retrieval
+            // --- 7. 从配置或其他地方获取邀请码 ---
+            // 为了简化，我们暂时使用前端 auth 接口传来的 code 参数作为邀请码
+            $inviteCode = $code ?? ''; 
 
             // --- 8. 调用内部登录/注册逻辑 ---
             Log::info("Calling internal OAuth login/register logic", ['email' => $email]);
@@ -300,12 +294,13 @@ class OAuthController extends Controller
                 }
                 
             } else {
-                // 如果 Session 中完全没有 frontendCallbackUrl (理论上不应发生，因为前面已经检查并抛出异常)
+                // 如果没有前端 URL (理论上不应发生，因为前面已经检查并抛出异常)
                 Log::critical("Critical: frontendCallbackUrl is empty in finally block. This should not happen.");
                 return redirect()->to(url('/#/login?error=' . urlencode('Critical error: Missing redirect destination.')));
             }
         }
     }
+
 
     /**
      * Telegram 登录入口 (GET 请求)
@@ -346,7 +341,7 @@ class OAuthController extends Controller
             return redirect()->to($successRedirectUrl);
         } else {
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/registration.';
-            Log::error("Telegram login/registration failed", ['error' => $errorMessage, 'tg_id' => $tgId]);
+            Log::error("Telegram login/registration failed internally.", ['error' => $errorMessage, 'tg_id' => $tgId]);
             // 失败：重定向到登录页
             $failureRedirectUrl = $defaultFrontendUrl . '#/login?error=' . urlencode($errorMessage);
             return redirect()->to($failureRedirectUrl);
