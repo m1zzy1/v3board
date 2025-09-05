@@ -18,19 +18,19 @@ class Login extends Telegram {
     public function handle($message, $match = []) {
         // 确保是私聊消息
         if (!$message->is_private) return;
-        
+
         // 检查是否提供了哈希值参数
         if (!isset($message->args[0])) {
             $this->sendReply($message, "请提供登录哈希值，格式：/login <哈希值>");
             return;
         }
-        
+
         $hash = $message->args[0];
         $tgId = $message->chat_id;
-        
+
         // 检查用户是否已绑定 Telegram ID
         $user = User::where('telegram_id', $tgId)->first();
-        
+
         if ($user) {
             // 用户已绑定 Telegram ID，这是登录操作
             $this->handleLogin($message, $hash, $user);
@@ -39,7 +39,7 @@ class Login extends Telegram {
             $this->handleRegistration($message, $hash, $tgId);
         }
     }
-    
+
     private function handleLogin($message, $hash, $user) {
         // 构造请求数据
         $requestData = [
@@ -48,21 +48,21 @@ class Login extends Telegram {
             'first_name' => $message->first_name ?? 'Telegram User',
             'message' => $message->text
         ];
-        
+
         // 直接调用 OAuthController 的 handleTelegramBotCallback 方法
         try {
             // 创建一个模拟的 Request 对象
             $request = new Request();
             $request->setMethod('POST');
             $request->request->add($requestData);
-            
+
             // 创建 OAuthController 实例并调用 handleTelegramBotCallback
             $oauthController = new OAuthController();
             $response = $oauthController->handleTelegramBotCallback($request);
-            
+
             // 解析响应
             $responseData = json_decode($response->getContent(), true);
-            
+
             if (isset($responseData['data']) && isset($responseData['data']['token'])) {
                 // 登录成功
                 $this->sendReply($message, "✅ 登录成功！
@@ -81,7 +81,7 @@ class Login extends Telegram {
             $this->sendReply($message, "❌ 处理登录请求时发生错误，请稍后重试。");
         }
     }
-    
+
     private function handleRegistration($message, $hash, $tgId) {
         // 构造请求数据
         $requestData = [
@@ -90,55 +90,42 @@ class Login extends Telegram {
             'first_name' => $message->first_name ?? 'Telegram User',
             'message' => $message->text
         ];
-        
+
         // 直接调用 OAuthController 的 handleTelegramBotCallback 方法
         try {
             // 创建一个模拟的 Request 对象
             $request = new Request();
             $request->setMethod('POST');
             $request->request->add($requestData);
-            
+
             // 创建 OAuthController 实例并调用 handleTelegramBotCallback
             $oauthController = new OAuthController();
             $response = $oauthController->handleTelegramBotCallback($request);
-            
+
             // 解析响应
             $responseData = json_decode($response->getContent(), true);
-            
+
             if (isset($responseData['data']) && isset($responseData['data']['token'])) {
                 // 注册并登录成功
                 $token = $responseData['data']['token'];
-                
+
                 // 获取用户信息
                 $user = User::where('telegram_id', $tgId)->first();
                 if ($user) {
                     // 检查是否有明文密码返回
                     $plainPassword = $responseData['data']['plain_password'] ?? null;
-                    
+
                     if ($plainPassword) {
                         // 使用 Markdown 格式发送账户信息给用户
-                        $accountInfo = "✅ **注册成功！**
+                        $accountInfo = "✅ **注册成功！**\n\n欢迎使用我们的服务！\n\n您的账户信息：\n📧 **邮箱**: `{$user->email}`\n🔑 **密码**: `{$plainPassword}`\n\n请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
 
-欢迎使用我们的服务！
-
-您的账户信息：
-📧 **邮箱**: `{$user->email}`
-🔑 **密码**: `{$plainPassword}`
-
-请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
-                        
                         $this->sendReply($message, $accountInfo, 'markdown');
                     } else {
                         // 登录成功，没有明文密码说明是已存在的用户
-                        $this->sendReply($message, "✅ 登录成功！
-
-您已成功登录到网站。
-用户邮箱: {$user->email}", 'markdown');
+                        $this->sendReply($message, "✅ 登录成功！\n\n您已成功登录到网站。\n用户邮箱: {$user->email}", 'markdown');
                     }
                 } else {
-                    $this->sendReply($message, "✅ 操作成功！
-
-您已成功登录到网站。");
+                    $this->sendReply($message, "✅ 操作成功！\n您已成功登录到网站。");
                 }
             } else if (isset($responseData['error'])) {
                 // 注册失败
@@ -152,7 +139,7 @@ class Login extends Telegram {
             $this->sendReply($message, "❌ 处理注册请求时发生错误，请稍后重试。");
         }
     }
-    
+
     private function sendReply($message, $text, $parseMode = '') {
         try {
             $telegramService = $this->telegramService;
