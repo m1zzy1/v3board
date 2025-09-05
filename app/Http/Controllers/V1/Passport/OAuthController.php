@@ -328,8 +328,8 @@ class OAuthController extends Controller
      */
     public function handleTelegramLogin(Request $request)
     {
-        // 1. 生成25位唯一的 hash 值
-        $hash = Helper::generateTelegramLoginCode(25);
+        // 1. 生成21位唯一的 hash 值
+        $hash = Helper::generateTelegramLoginCode(21);
         
         // 2. 将 hash 值存储到缓存中，设置过期时间（例如5分钟）
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_HASH', $hash);
