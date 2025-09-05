@@ -35,6 +35,11 @@ class OAuthController extends Controller
 
         if ($type === 'google') {
             // --- 核心：将前端传来的完整 redirect URL 存入 Session ---
+            // *** 调试日志 1: 存储时 ***
+            \Log::info('AUTH METHOD: Storing redirect URL in session', [
+                'url_to_store' => $frontendRedirectUrl,
+                'session_id' => \Session::getId()
+            ]);
             session([
                 'oauth_redirect_url' => $frontendRedirectUrl // 存储完整的前端 URL
             ]);
@@ -91,12 +96,23 @@ class OAuthController extends Controller
         $token = null;             // V2Board 返回的 token
         $errorMessage = null;      // 错误信息
 
+        // --- 调试日志 2: 回调开始时打印整个 Session ---
+        \Log::info('CALLBACK METHOD: Full session data at start of callback', [
+            'all_session_data' => \Session::all(),
+            'session_id' => \Session::getId()
+        ]);
+
         try {
             Log::info("Google OAuth Callback initiated", ['query_params' => $request->all()]);
 
             // --- 2. 从 Session 获取前端传来的 redirect URL ---
             // *** 这是关键：从 Session 读取之前存储的前端 URL ***
+            // *** 调试日志 3: 读取时 ***
             $frontendCallbackUrl = session('oauth_redirect_url', '');
+            \Log::info('CALLBACK METHOD: Retrieved redirect URL from session', [
+                'url_retrieved' => $frontendCallbackUrl,
+                'session_id' => \Session::getId()
+            ]);
             Log::info("Retrieved frontend callback URL from session", ['url' => $frontendCallbackUrl]);
 
             if (empty($frontendCallbackUrl)) {
