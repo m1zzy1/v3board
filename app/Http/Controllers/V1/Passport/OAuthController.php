@@ -8,12 +8,10 @@ use App\Models\InviteCode;
 use App\Services\AuthService;
 use App\Jobs\SendEmailJob;
 use App\Utils\Helper;
-use App\Utils\CacheKey;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Log;
 
 class OAuthController extends Controller
 {
@@ -53,14 +51,25 @@ class OAuthController extends Controller
                 return response()->json(['error' => 'Google OAuth is not properly configured on the server.'], 500);
             }
             
-            // 使用 Socialite 并动态设置 redirect_uri 和凭据
-            return Socialite::driver('google')
-                ->redirectUrl($redirectUri)
-                ->setConfig([
-                    'client_id' => $googleClientId,
-                    'client_secret' => $googleClientSecret,
-                ])
-                ->redirect();
+            try {
+                // 使用 Socialite 并动态设置 redirect_uri 和凭据
+                return Socialite::driver('google')
+                    ->redirectUrl($redirectUri)
+                    ->setConfig([
+                        'client_id' => $googleClientId,
+                        'client_secret' => $googleClientSecret,
+                    ])
+                    ->redirect();
+            } catch (\Exception $e) {
+                // 捕获 Socialite 或 GuzzleHttp (用于网络请求) 抛出的任何异常
+                Log::error("Google OAuth Redirect Error: " . $e->getMessage(), ['exception' => $e]);
+                // 返回具体的错误信息给前端
+                return response()->json([
+                    'error' => 'Failed to initiate Google OAuth redirect.',
+                    'message' => $e->getMessage() // 可以根据安全策略决定是否暴露详细信息
+                ], 500);
+            }
+            
         } else {
             return response()->json(['error' => 'Unsupported OAuth type'], 400);
         }
@@ -133,7 +142,9 @@ class OAuthController extends Controller
             }
 
         } catch (\Exception $e) {
+            // 捕获 Socialite, GuzzleHttp 或内部逻辑抛出的任何异常
             Log::error("Google OAuth Callback Error: " . $e->getMessage(), ['exception' => $e]);
+            // 重定向到前端错误页面，并附带错误信息
             return redirect()->to($this->getFailureRedirectUrl('An error occurred during Google authentication.'));
         }
     }
