@@ -210,7 +210,10 @@ class OAuthController extends Controller
     }
 
     /**
-     * 处理 Google 回调的结果并重定向回前端 (严格遵循前端指定的 URL)
+     * 处理 Google 回调的结果并重定向回前端 (恢复并修正跳转逻辑)
+     * 目标：将用户重定向到前端最初指定的 URL (e.g., http://localhost:8080/verify.html)
+     * 并附带 token 或 error 信息。
+     * 
      * @param string $frontendRedirectUrl 前端传来的完整重定向 URL (e.g., http://localhost:8080/verify.html)
      * @param bool $success 是否成功
      * @param string|null $token 成功时的 V2Board token
@@ -219,39 +222,69 @@ class OAuthController extends Controller
      */
     private function handleCallbackResult(string $frontendRedirectUrl, bool $success, ?string $token, ?string $errorMessage)
     {
-        Log::info("Building final redirect URL (Strictly Frontend URL)", [
-            'frontend_url' => $frontendRedirectUrl,
+        Log::info("Building final redirect URL (Reverted logic)", [
+            'frontend_redirect_url' => $frontendRedirectUrl,
             'success' => $success,
             'token' => $token,
             'error' => $errorMessage
         ]);
 
-        // --- 核心逻辑：无论如何都跳转到前端指定的 URL ---
-        // 例如：$frontendRedirectUrl = 'http://localhost:8080/verify.html'
+        // --- 核心：严格使用前端传来的 URL 作为基础 ---
 
-        // 1. 基础 URL 就是前端指定的
-        $baseUrl = $frontendRedirectUrl;
-
-        // 2. 确定 Fragment (Hash) - 成功通常跳转到仪表盘，失败跳转到登录页
-        // 但为了完全匹配前端期望，我们可以都用同一个 fragment，比如 /result 或者空
-        // 让我们用 /result 作为通用的回调处理页面 fragment
-        $fragment = '/result'; 
-
-        // 3. 构造查询参数
-        $queryParams = [];
-        if ($success && $token) {
-            $queryParams['token'] = $token;
-        } else if (!$success && $errorMessage) {
-            $queryParams['error'] = urlencode($errorMessage);
+        // 1. 如果前端没有提供 URL，则 fallback
+        if (empty($frontendRedirectUrl)) {
+            Log::warning("No frontend redirect URL provided, using fallback.");
+            // 尝试使用配置的默认前端地址
+            $defaultFrontend = config('v2board.app_url');
+            if ($defaultFrontend) {
+                $frontendRedirectUrl = rtrim($defaultFrontend, '/'); // 确保没有末尾的 /
+            } else {
+                // 最后的 fallback 是后端根目录
+                $frontendRedirectUrl = url('/');
+            }
         }
-        $queryString = !empty($queryParams) ? '?' . http_build_query($queryParams) : '';
 
-        // 4. 拼接最终 URL: base_url + # + fragment + query_string
-        // 结果: http://localhost:8080/verify.html#/result?token=XYZ
-        // 或者: http://localhost:8080/verify.html#/result?error=...
-        $finalUrl = $baseUrl . '#' . ltrim($fragment, '#') . $queryString;
+        // 2. 解析前端 URL
+        $parsedUrl = parse_url($frontendRedirectUrl);
 
-        Log::info("Final redirect URL (Strictly Frontend)", ['url' => $finalUrl]);
+        if ($parsedUrl === false) {
+            Log::error("Failed to parse frontend redirect URL, using root.", ['url' => $frontendRedirectUrl]);
+            // 如果解析失败，fallback 到一个简单的本地页面
+            return redirect()->to('/#/login?error=' . urlencode('前端回调地址解析失败。'));
+        }
+
+        // 3. 提取基础部分 (scheme, host, port, path)
+        $scheme = $parsedUrl['scheme'] ?? 'http';
+        $host = $parsedUrl['host'] ?? '';
+        $port = isset($parsedUrl['port']) ? ':' . $parsedUrl['port'] : '';
+        $path = $parsedUrl['path'] ?? '/';
+        $originalQuery = $parsedUrl['query'] ?? ''; // 保留原始查询参数
+
+        // 4. 构建基础 URL (不包含 fragment 和我们自定义的 query)
+        $baseUrl = $scheme . '://' . $host . $port . $path;
+        if ($originalQuery) {
+            $baseUrl .= '?' . $originalQuery; // 保留原始查询
+        }
+
+        // 5. 定义 Fragment (页面标识)
+        // 我们统一使用 /callback 作为 fragment，前端 verify.html 可以根据这个来判断是 Google 回调
+        $fragment = '/callback'; 
+
+        // 6. 构造我们自己的查询参数 (token 或 error)
+        $ourQueryParams = [];
+        if ($success && $token) {
+            $ourQueryParams['token'] = $token;
+        } else if (!$success && $errorMessage) {
+             // 确保错误信息被正确编码
+            $ourQueryParams['error'] = urlencode($errorMessage ?? '未知错误');
+        }
+        $ourQueryString = !empty($ourQueryParams) ? '?' . http_build_query($ourQueryParams) : '';
+
+        // 7. 拼接最终 URL: base_url + # + fragment + our_query_string
+        // 例如: http://localhost:8080/verify.html#/callback?token=XYZ
+        $finalUrl = $baseUrl . '#' . ltrim($fragment, '#') . $ourQueryString;
+
+        Log::info("Final redirect URL constructed", ['url' => $finalUrl]);
         return redirect()->to($finalUrl);
     }
 
