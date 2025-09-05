@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1\Guest;
 
 use App\Http\Controllers\Controller;
+use App\Services\TelegramService;
 use App\Utils\Dict;
 use Illuminate\Support\Facades\Http;
 
@@ -10,6 +11,19 @@ class CommController extends Controller
 {
     public function config()
     {
+        // 获取 Telegram 机器人用户名
+        $telegramBotName = null;
+        if (config('v2board.telegram_bot_enable', 0)) {
+            try {
+                $telegramService = new TelegramService();
+                $response = $telegramService->getMe();
+                $telegramBotName = $response->result->username ?? null;
+            } catch (\Exception $e) {
+                // 如果获取失败，不返回 Telegram 机器人用户名
+                $telegramBotName = null;
+            }
+        }
+
         return response([
             'data' => [
                 'tos_url' => config('v2board.tos_url'),
@@ -23,6 +37,7 @@ class CommController extends Controller
                 'app_description' => config('v2board.app_description'),
                 'app_url' => config('v2board.app_url'),
                 'logo' => config('v2board.logo'),
+                'telegram_bot_name' => $telegramBotName,
             ]
         ]);
     }

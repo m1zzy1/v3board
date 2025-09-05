@@ -7,8 +7,10 @@ use App\Models\User;
 use App\Models\InviteCode;
 use App\Services\AuthService;
 use App\Jobs\SendEmailJob;
+use App\Utils\CacheKey;
 use App\Utils\Helper;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use GuzzleHttp\Client as GuzzleClient;
@@ -322,56 +324,27 @@ class OAuthController extends Controller
 
     /**
      * Telegram 登录入口 (GET 请求)
-     * 假设 Telegram 前端直接跳转到这个 URL 并携带参数
-     * 例如: /api/v1/passport/oauth/telegram?... (Telegram 参数)
+     * 生成一个唯一的 hash 值，供用户发送给 Telegram 机器人
      */
     public function handleTelegramLogin(Request $request)
     {
-        // 1. 验证 Telegram 数据 (使用系统配置的 Telegram Bot Token)
-        if (!$this->verifyTelegramAuth($request->all())) {
-             Log::warning("Telegram authentication verification failed", ['query_params' => $request->all()]);
-             // 对于 Telegram，我们没有前端传来的 redirect URL，需要一个默认的处理方式
-             // 可以尝试从配置获取默认前端地址，或者重定向到后端根目录（不太理想）
-             $defaultFrontendUrl = config('v2board.app_url', url('/'));
-             $failureRedirectUrl = $defaultFrontendUrl . '#/login?error=' . urlencode('Telegram authentication verification failed.');
-             return redirect()->to($failureRedirectUrl);
-        }
-
-        $tgId = $request->input('id');
-        $firstName = $request->input('first_name', 'TG User');
+        // 1. 生成唯一的 hash 值
+        $hash = Helper::guid();
         
-        // 使用配置的 app_url 来生成邮箱域名部分
-        $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com';
-        $email = "tg_{$tgId}@{$appUrlHost}"; // 构造唯一邮箱
-        $name = $firstName;
-
-        // 2. 调用内部登录/注册逻辑 (Telegram 通常不涉及邀请码)
-        Log::info("Calling internal OAuth login/register logic for Telegram", ['email' => $email]);
-        $result = $this->oauthLoginInternal($email, $name);
-
-        // 3. 处理响应并重定向 (同样，Telegram 回调没有前端 URL，使用默认)
-        $defaultFrontendUrl = config('v2board.app_url', url('/'));
-        if ($result['success']) {
-            $token = $result['token'];
-            $authData = $result['auth_data'];
-            Log::info("Telegram login successful, redirecting with token", ['token' => $token]);
-            // 成功：重定向到仪表盘
-            // 传递与 AuthController 相同的三个字段作为独立参数
-            $queryParams = [
-                'token' => $token,
-                'is_admin' => $authData['is_admin'] ?? 0,
-                'auth_data' => $authData['auth_data'] ?? ''
-            ];
-            $queryString = http_build_query($queryParams);
-            $successRedirectUrl = $defaultFrontendUrl . '#/dashboard?' . $queryString;
-            return redirect()->to($successRedirectUrl);
-        } else {
-            $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/registration.';
-            Log::error("Telegram login/registration failed internally.", ['error' => $errorMessage, 'tg_id' => $tgId]);
-            // 失败：重定向到登录页
-            $failureRedirectUrl = $defaultFrontendUrl . '#/login?error=' . urlencode($errorMessage);
-            return redirect()->to($failureRedirectUrl);
-        }
+        // 2. 将 hash 值存储到缓存中，设置过期时间（例如5分钟）
+        $cacheKey = CacheKey::get('TELEGRAM_LOGIN_HASH', $hash);
+        Cache::put($cacheKey, [
+            'hash' => $hash,
+            'created_at' => time()
+        ], 300); // 5分钟过期
+        
+        // 3. 返回 hash 值给前端
+        return response([
+            'data' => [
+                'hash' => $hash,
+                'expires_in' => 300 // 过期时间（秒）
+            ]
+        ]);
     }
 
     /**
@@ -538,6 +511,79 @@ class OAuthController extends Controller
         }
     }
 
+
+    /**
+     * Telegram 机器人回调处理
+     * 验证用户发送的 hash 值，并执行登录逻辑
+     */
+    public function handleTelegramBotCallback(Request $request)
+    {
+        // 1. 获取 Telegram 机器人发送的数据
+        $tgId = $request->input('id');
+        $hash = $request->input('hash');
+        $message = $request->input('message');
+        
+        if (!$tgId || !$hash) {
+            return response()->json(['error' => 'Missing required parameters'], 400);
+        }
+        
+        // 2. 验证 hash 值是否存在且未过期
+        $cacheKey = CacheKey::get('TELEGRAM_LOGIN_HASH', $hash);
+        $cachedData = Cache::get($cacheKey);
+        
+        if (!$cachedData) {
+            return response()->json(['error' => 'Invalid or expired hash'], 400);
+        }
+        
+        // 3. 删除已使用的 hash 值
+        Cache::forget($cacheKey);
+        
+        // 4. 检查用户是否已绑定 Telegram ID
+        $user = User::where('telegram_id', $tgId)->first();
+        
+        if (!$user) {
+            // 用户未绑定 Telegram ID，检查是否通过邮箱注册过
+            $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com';
+            $email = "tg_{$tgId}@{$appUrlHost}";
+            $user = User::where('email', $email)->first();
+            
+            if (!$user) {
+                return response()->json(['error' => 'User not found. Please register first and bind your Telegram account.'], 400);
+            }
+            
+            // 绑定 Telegram ID 到用户账户
+            $user->telegram_id = $tgId;
+            if (!$user->save()) {
+                return response()->json(['error' => 'Failed to bind Telegram account'], 500);
+            }
+        }
+        
+        // 5. 执行登录逻辑
+        $firstName = $request->input('first_name', 'TG User');
+        $name = $firstName;
+        
+        Log::info("Calling internal OAuth login/register logic for Telegram", ['email' => $user->email]);
+        $result = $this->oauthLoginInternal($user->email, $name);
+        
+        if ($result['success']) {
+            $token = $result['token'];
+            $authData = $result['auth_data'];
+            Log::info("Telegram login successful", ['token' => $token]);
+            
+            // 返回登录数据
+            return response()->json([
+                'data' => [
+                    'token' => $token,
+                    'is_admin' => $authData['is_admin'] ?? 0,
+                    'auth_data' => $authData['auth_data'] ?? ''
+                ]
+            ]);
+        } else {
+            $errorMessage = $result['message'] ?? 'Unknown error during Telegram login.';
+            Log::error("Telegram login failed internally.", ['error' => $errorMessage, 'tg_id' => $tgId]);
+            return response()->json(['error' => $errorMessage], 500);
+        }
+    }
 
     /**
      * 验证 Telegram 登录数据 (使用系统配置的 Telegram Bot Token)
