@@ -10,13 +10,14 @@ use App\Jobs\SendEmailJob;
 use App\Utils\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Laravel\Socialite\Facades\Socialite; // 修复: 确保使用正确的反斜杠 
+use Laravel\Socialite\Facades\Socialite; // 修复: 确保使用正确的反斜杠
 use Illuminate\Support\Str;
 
 
 class OAuthController extends Controller
 {
     /**
+     * 这是测试代码，看看会不会提交更新上去
      * 统一 OAuth 入口 (POST)
      * 接收 type (google), code (invite_code), redirect_domain
      * 注意：Telegram 通常由前端直接触发，不通过此入口
@@ -42,7 +43,7 @@ class OAuthController extends Controller
 
             // --- 动态设置 Google Redirect URI ---
             $redirectUri = ($redirectDomain ? rtrim($redirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
-            
+
             // --- 从 .env (config/services.php) 读取 Google 凭据 ---
             $googleClientId = config('services.google.client_id');
             $googleClientSecret = config('services.google.client_secret');
@@ -51,7 +52,7 @@ class OAuthController extends Controller
                 Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the .env file.");
                 return response()->json(['error' => 'Google OAuth is not properly configured on the server.'], 500);
             }
-            
+
             try {
                 // 使用 Socialite 并动态设置 redirect_uri 和凭据
                 return Socialite::driver('google')
@@ -70,7 +71,7 @@ class OAuthController extends Controller
                     'message' => $e->getMessage() // 可以根据安全策略决定是否暴露详细信息
                 ], 500);
             }
-            
+
         } else {
             return response()->json(['error' => 'Unsupported OAuth type'], 400);
         }
@@ -87,7 +88,7 @@ class OAuthController extends Controller
             $oauthParams = session('oauth_params', []);
             $storedRedirectDomain = $oauthParams['redirect_domain'] ?? '';
             $redirectUri = ($storedRedirectDomain ? rtrim($storedRedirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
-            
+
             // --- 从 .env (config/services.php) 读取 Google 凭据 ---
             $googleClientId = config('services.google.client_id');
             $googleClientSecret = config('services.google.client_secret');
@@ -96,7 +97,7 @@ class OAuthController extends Controller
                 Log::error("Google OAuth credentials (Client ID or Secret) are not configured in the .env file (Callback).");
                 return redirect()->to($this->getFailureRedirectUrl('Google OAuth is not properly configured on the server.'));
             }
-            
+
             // 使用 Socialite 并动态设置 redirect_uri 和凭据
             $googleUser = Socialite::driver('google')
                 ->redirectUrl($redirectUri)
@@ -164,7 +165,7 @@ class OAuthController extends Controller
 
         $tgId = $request->input('id');
         $firstName = $request->input('first_name', 'TG User');
-        
+
         // 使用配置的 app_url 来生成邮箱域名部分
         $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com';
         $email = "tg_{$tgId}@{$appUrlHost}"; // 构造唯一邮箱
@@ -209,7 +210,7 @@ class OAuthController extends Controller
                 $user->token = Helper::guid();
                 // Set a default name if provided
                 if ($name) {
-                    $user->name = $name; 
+                    $user->name = $name;
                 }
 
                 // --- 邀请码逻辑 ---
@@ -239,7 +240,7 @@ class OAuthController extends Controller
                         $user->speed_limit = $plan->speed_limit;
                     }
                 }
-                
+
                 // --- 保存用户 ---
                 if (!$user->save()) {
                     return [
@@ -264,7 +265,7 @@ class OAuthController extends Controller
                         'url'      => config('v2board.app_url')
                     ]
                 ]);
-                
+
                 // --- 登录后处理 ---
                 $user->last_login_at = time();
                 $user->save();
@@ -355,8 +356,8 @@ class OAuthController extends Controller
 
         if (strcmp($hash, $check_hash) !== 0) {
              Log::warning("Telegram auth hash mismatch.", [
-                 'received_hash' => $check_hash, 
-                 'calculated_hash' => $hash, 
+                 'received_hash' => $check_hash,
+                 'calculated_hash' => $hash,
                  'data' => $data,
                  'data_check_string' => $data_check_string // For debugging
              ]);
