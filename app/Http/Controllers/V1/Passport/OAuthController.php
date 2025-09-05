@@ -549,39 +549,8 @@ class OAuthController extends Controller
             $user = User::where('email', $email)->first();
             
             if (!$user) {
-                // 用户不存在，自动创建新用户
-                try {
-                    $user = new User();
-                    $user->email = $email;
-                    // 生成明文密码
-                    $plainPassword = Helper::randomChar(12);
-                    // 加密后存储到数据库
-                    $user->password = password_hash($plainPassword, PASSWORD_DEFAULT);
-                    $user->uuid = Helper::guid(true);
-                    $user->token = Helper::guid();
-                    $user->telegram_id = $tgId;
-                    
-                    // 处理试用计划逻辑 (如果配置了试用计划)
-                    $tryOutPlanId = (int)config('v2board.try_out_plan_id', 0);
-                    if ($tryOutPlanId) {
-                        $plan = \App\Models\Plan::find($tryOutPlanId);
-                        if ($plan) {
-                            $user->transfer_enable = $plan->transfer_enable * 1073741824;
-                            $user->device_limit = $plan->device_limit;
-                            $user->plan_id = $plan->id;
-                            $user->group_id = $plan->group_id;
-                            $user->expired_at = time() + (config('v2board.try_out_hour', 1) * 3600);
-                            $user->speed_limit = $plan->speed_limit;
-                        }
-                    }
-                    
-                    if (!$user->save()) {
-                        return response()->json(['error' => 'Failed to create new user'], 500);
-                    }
-                } catch (\Exception $e) {
-                    Log::error("Telegram user creation failed: " . $e->getMessage());
-                    return response()->json(['error' => 'Failed to create new user'], 500);
-                }
+                // 用户不存在，让 oauthLoginInternal 方法处理创建新用户的逻辑
+                // 不在这里重复创建用户
             } else {
                 // 绑定 Telegram ID 到现有用户账户
                 $user->telegram_id = $tgId;
