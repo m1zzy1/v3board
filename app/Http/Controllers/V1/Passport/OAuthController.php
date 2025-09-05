@@ -210,8 +210,14 @@ class OAuthController extends Controller
     }
 
     /**
-     * 处理 Google 回调的结果并重定向回前端 (简化版，模仿 Node.js)
-     * @param string $frontendRedirectUrl 前端传来的完整重定向 URL (e.g., http://localhost:8080/#/dashboard)
+     * 处理 Google 回调的结果并重定向回前端 (最终版)
+     * 目标：让浏览器加载前端指定的页面（如 verify.html），并在 URL 上附带 token 或 error 信息，
+     * 供前端 JavaScript 解析。
+     * 例如：前端传 http://localhost:8080/verify.html
+     * 成功时重定向到：http://localhost:8080/verify.html#/dashboard?token=XYZ
+     * 失败时重定向到：http://localhost:8080/verify.html#/login?error=...
+     *
+     * @param string $frontendRedirectUrl 前端传来的完整重定向 URL (e.g., http://localhost:8080/verify.html)
      * @param bool $success 是否成功
      * @param string|null $token 成功时的 V2Board token
      * @param string|null $errorMessage 失败时的错误信息
@@ -219,53 +225,77 @@ class OAuthController extends Controller
      */
     private function handleCallbackResult(string $frontendRedirectUrl, bool $success, ?string $token, ?string $errorMessage)
     {
-        Log::info("Building final redirect URL (Simplified Node.js style)", [
+        Log::info("Building final redirect URL (Final version)", [
             'input_url' => $frontendRedirectUrl,
             'success' => $success,
             'token' => $token,
             'error' => $errorMessage
         ]);
 
-        // --- 核心思想：模仿 Node.js 的字符串拼接 ---
-        // Node.js: `${redirectDomain}/#/dashboard?token=${token}`
-        // 我们需要从 $frontendRedirectUrl (e.g., http://localhost:8080/#/dashboard) 得到 redirectDomain (http://localhost:8080)
-
-        // 1. Fallback
+        // 1. Fallback to a default if input is empty
         if (empty($frontendRedirectUrl)) {
-            $frontendRedirectUrl = config('v2board.app_url', url('/'));
+            // 如果没提供，尝试用配置的前端地址
+            $defaultFrontend = config('v2board.app_url');
+            if ($defaultFrontend) {
+                // 尝试解析并移除可能的 fragment
+                $parsedDefault = parse_url($defaultFrontend);
+                if ($parsedDefault !== false) {
+                    $scheme = $parsedDefault['scheme'] ?? 'http';
+                    $host = $parsedDefault['host'] ?? '';
+                    $port = isset($parsedDefault['port']) ? ':' . $parsedDefault['port'] : '';
+                    $path = $parsedDefault['path'] ?? '/';
+                    $frontendRedirectUrl = $scheme . '://' . $host . $port . $path; // 不包含 query 和 fragment
+                } else {
+                    $frontendRedirectUrl = $defaultFrontend;
+                }
+            } else {
+                // 最后的 fallback
+                $frontendRedirectUrl = url('/');
+            }
+             // 确保它指向一个页面文件，而不是根目录
+             if (rtrim($frontendRedirectUrl, '/') === url('')) {
+                 $frontendRedirectUrl .= '/index.html'; // Or whatever your default page is
+             }
         }
 
-        // 2. 解析输入的 URL
+        // 2. Parse the input URL
         $parsedUrl = parse_url($frontendRedirectUrl);
 
         if ($parsedUrl === false) {
-            Log::error("Failed to parse frontend redirect URL", ['url' => $frontendRedirectUrl]);
-            // Fallback to a simple local redirect
-            return redirect()->to('/#/login?error=' . urlencode('Invalid redirect URL provided.'));
+            Log::error("Failed to parse frontend redirect URL, using root fallback", ['url' => $frontendRedirectUrl]);
+            // Fallback to root with error
+            return redirect()->to('/#/login?error=' . urlencode('配置错误：无法解析前端回调地址。'));
         }
 
-        // 3. 提取基础域名 (scheme + host + port)
-        $scheme = isset($parsedUrl['scheme']) ? $parsedUrl['scheme'] . '://' : '//';
+        // 3. Extract components
+        $scheme = $parsedUrl['scheme'] ?? 'http';
         $host = $parsedUrl['host'] ?? '';
         $port = isset($parsedUrl['port']) ? ':' . $parsedUrl['port'] : '';
-        $redirectDomain = $scheme . $host . $port;
+        $path = $parsedUrl['path'] ?? '/'; // This is the crucial part, e.g., /verify.html
+        $query = $parsedUrl['query'] ?? ''; // Keep existing query if any
+        $fragment = $success ? '/dashboard' : '/login'; // Define fragment based on success
 
-        // 4. 确定 fragment (页面)
-        $fragment = $success ? '/dashboard' : '/login';
-
-        // 5. 构造查询参数
-        $queryParams = [];
-        if ($success && $token) {
-            $queryParams['token'] = $token;
-        } else if (!$success && $errorMessage) {
-            $queryParams['error'] = urlencode($errorMessage);
+        // 4. Construct base URL (without fragment or our custom query)
+        $baseUrl = $scheme . '://' . $host . $port . $path;
+        if ($query) {
+            $baseUrl .= '?' . $query; // Append original query if exists
         }
-        $queryString = !empty($queryParams) ? '?' . http_build_query($queryParams) : '';
 
-        // 6. 拼接最终 URL (严格模仿 Node.js 输出格式)
-        $finalUrl = $redirectDomain . '/#' . $fragment . $queryString;
+        // 5. Build our custom query string (token or error)
+        $customQueryParams = [];
+        if ($success && $token) {
+            $customQueryParams['token'] = $token;
+        } else if (!$success && $errorMessage) {
+            $customQueryParams['error'] = urlencode($errorMessage);
+        }
+        $customQueryString = !empty($customQueryParams) ? '?' . http_build_query($customQueryParams) : '';
 
-        Log::info("Final redirect URL (Node.js模仿)", ['url' => $finalUrl]);
+        // 6. Combine everything: base_url + # + fragment + custom_query_string
+        // This results in: http://localhost:8080/verify.html#/dashboard?token=XYZ
+        // The browser loads verify.html, and the JS can read #/dashboard?token=XYZ from the URL
+        $finalUrl = $baseUrl . '#' . ltrim($fragment, '#') . $customQueryString;
+
+        Log::info("Final redirect URL (assembled)", ['url' => $finalUrl]);
         return redirect()->to($finalUrl);
     }
 
