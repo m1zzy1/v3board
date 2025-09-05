@@ -3,6 +3,8 @@
 namespace App\Plugins\Telegram\Commands;
 
 use App\Plugins\Telegram\Telegram;
+use Illuminate\Support\Facades\Cache;
+use App\Utils\CacheKey;
 use App\Models\User;
 use App\Utils\Helper;
 use Illuminate\Support\Facades\Log;
@@ -11,7 +13,7 @@ use Illuminate\Http\Request;
 
 class Login extends Telegram {
     public $command = '/login';
-    public $description = '使用哈希值登录网站';
+    public $description = '使用哈希值登录或注册网站';
 
     public function handle($message, $match = []) {
         // 确保是私聊消息
@@ -29,48 +31,58 @@ class Login extends Telegram {
         // 检查用户是否已绑定 Telegram ID
         $user = User::where('telegram_id', $tgId)->first();
         
-        if (!$user) {
-            // 用户未绑定 Telegram ID，检查是否通过邮箱注册过
-            $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com';
-            $email = "tg_{$tgId}@{$appUrlHost}";
-            $user = User::where('email', $email)->first();
-            
-            if (!$user) {
-                // 创建新用户
-                try {
-                    $user = new User();
-                    $user->email = $email;
-                    $password = Helper::guid(); // 生成随机密码
-                    $user->password = password_hash($password, PASSWORD_DEFAULT);
-                    $user->uuid = Helper::guid(true);
-                    $user->token = Helper::guid();
-                    $user->telegram_id = $tgId;
-                    
-                    if (!$user->save()) {
-                        $this->sendReply($message, "❌ 创建用户失败，请稍后重试。");
-                        return;
-                    }
-                } catch (\Exception $e) {
-                    Log::error("Telegram login user creation failed: " . $e->getMessage());
-                    $this->sendReply($message, "❌ 创建用户时发生错误，请稍后重试。");
-                    return;
-                }
-            } else {
-                // 绑定 Telegram ID 到现有用户账户
-                try {
-                    $user->telegram_id = $tgId;
-                    if (!$user->save()) {
-                        $this->sendReply($message, "❌ 绑定 Telegram 账户失败，请稍后重试。");
-                        return;
-                    }
-                } catch (\Exception $e) {
-                    Log::error("Telegram login user binding failed: " . $e->getMessage());
-                    $this->sendReply($message, "❌ 绑定 Telegram 账户时发生错误，请稍后重试。");
-                    return;
-                }
-            }
+        if ($user) {
+            // 用户已绑定 Telegram ID，这是登录操作
+            $this->handleLogin($message, $hash, $user);
+        } else {
+            // 用户未绑定 Telegram ID，这是注册操作
+            $this->handleRegistration($message, $hash, $tgId);
         }
+    }
+    
+    private function handleLogin($message, $hash, $user) {
+        // 构造请求数据
+        $requestData = [
+            'id' => $message->chat_id,
+            'hash' => $hash,
+            'first_name' => $message->first_name ?? 'Telegram User',
+            'message' => $message->text
+        ];
         
+        // 直接调用 OAuthController 的 handleTelegramBotCallback 方法
+        try {
+            // 创建一个模拟的 Request 对象
+            $request = new Request();
+            $request->setMethod('POST');
+            $request->request->add($requestData);
+            
+            // 创建 OAuthController 实例并调用 handleTelegramBotCallback
+            $oauthController = new OAuthController();
+            $response = $oauthController->handleTelegramBotCallback($request);
+            
+            // 解析响应
+            $responseData = json_decode($response->getContent(), true);
+            
+            if (isset($responseData['data']) && isset($responseData['data']['token'])) {
+                // 登录成功
+                $this->sendReply($message, "✅ 登录成功！
+
+您已成功登录到网站。
+用户邮箱: {$user->email}");
+            } else if (isset($responseData['error'])) {
+                // 登录失败
+                $this->sendReply($message, "❌ 登录失败: " . $responseData['error']);
+            } else {
+                // 未知响应格式
+                $this->sendReply($message, "❌ 登录过程中发生未知错误，请稍后重试。");
+            }
+        } catch (\Exception $e) {
+            Log::error("Telegram login request failed: " . $e->getMessage());
+            $this->sendReply($message, "❌ 处理登录请求时发生错误，请稍后重试。");
+        }
+    }
+    
+    private function handleRegistration($message, $hash, $tgId) {
         // 构造请求数据
         $requestData = [
             'id' => $tgId,
@@ -94,23 +106,36 @@ class Login extends Telegram {
             $responseData = json_decode($response->getContent(), true);
             
             if (isset($responseData['data']) && isset($responseData['data']['token'])) {
-                // 登录成功
+                // 注册并登录成功
                 $token = $responseData['data']['token'];
-                // 发送成功消息
-                $this->sendReply($message, "✅ 登录成功！
+                
+                // 获取用户信息
+                $user = User::where('telegram_id', $tgId)->first();
+                if ($user) {
+                    // 发送账户信息给用户
+                    $this->sendReply($message, "✅ 注册成功！
 
-您已成功登录到网站。
-用户邮箱: {$user->email}");
+欢迎使用我们的服务！
+您的账户信息：
+📧 邮箱: {$user->email}
+🔑 密码: （系统生成的随机密码）
+
+请妥善保管您的账户信息，您已成功登录到网站。");
+                } else {
+                    $this->sendReply($message, "✅ 注册成功！
+
+您已成功登录到网站。");
+                }
             } else if (isset($responseData['error'])) {
-                // 登录失败
-                $this->sendReply($message, "❌ 登录失败: " . $responseData['error']);
+                // 注册失败
+                $this->sendReply($message, "❌ 注册失败: " . $responseData['error']);
             } else {
                 // 未知响应格式
-                $this->sendReply($message, "❌ 登录过程中发生未知错误，请稍后重试。");
+                $this->sendReply($message, "❌ 注册过程中发生未知错误，请稍后重试。");
             }
         } catch (\Exception $e) {
-            Log::error("Telegram login request failed: " . $e->getMessage());
-            $this->sendReply($message, "❌ 处理登录请求时发生错误，请稍后重试。");
+            Log::error("Telegram registration request failed: " . $e->getMessage());
+            $this->sendReply($message, "❌ 处理注册请求时发生错误，请稍后重试。");
         }
     }
     
