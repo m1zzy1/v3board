@@ -14,19 +14,35 @@ use Illuminate\Support\Str;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Exception\RequestException;
 
-class OAuthController extends Controller
-{
-
-    // 辅助函数：Base64 URL 安全编码
-    private function base64url_encode($data) {
+// 辅助函数：Base64 URL 安全编码
+if (!function_exists('base64url_encode')) {
+    function base64url_encode($data) {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
+}
 
-    // 辅助函数：Base64 URL 安全解码
-    private function base64url_decode($data) {
+// 辅助函数：Base64 URL 安全解码
+if (!function_exists('base64url_decode')) {
+    function base64url_decode($data) {
         return base64_decode(str_pad(strtr($data, '-_', '+/'), strlen($data) % 4, '=', STR_PAD_RIGHT));
     }
+}
 
+// 安全日志函数
+if (!function_exists('safe_error_log')) {
+    function safe_error_log($message, $file_suffix = 'oauth_debug') {
+        $logDir = storage_path('logs');
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0755, true);
+        }
+        $log_message = "[" . date('Y-m-d H:i:s') . "] " . $message . "\n";
+        file_put_contents("{$logDir}/{$file_suffix}.log", $log_message, FILE_APPEND | LOCK_EX);
+    }
+}
+
+
+class OAuthController extends Controller
+{
     /**
      * 统一 OAuth 入口 (POST)
      * 接收 type (google), code (invite_code), redirect (frontend redirect url)
@@ -37,7 +53,7 @@ class OAuthController extends Controller
         // 从 POST 请求体中获取参数
         $type = $request->input('type');
         $code = $request->input('code', ''); // 邀请码
-        // --- 获取前端传来的 redirect URL ---
+        // --- 修正：获取前端传来的 redirect URL ---
         $frontendRedirectUrl = $request->input('redirect', ''); // 前端提供的最终重定向地址 (e.g., http://localhost:8080/verify.html)
 
         if (!$type) {
@@ -58,9 +74,8 @@ class OAuthController extends Controller
             $googleCallbackUri = url('/api/v1/passport/oauth/google/callback');
 
             // --- 将 redirect URL 编码并作为 state 参数传递 ---
-            // Google OAuth 允许使用 state 参数来防止 CSRF 攻击并传递自定义数据
-            $encodedRedirectUrl = $this->base64url_encode($frontendRedirectUrl);
-            $state = $encodedRedirectUrl; // 可以添加其他信息，用分隔符分开
+            $encodedRedirectUrl = base64url_encode($frontendRedirectUrl);
+            $state = $encodedRedirectUrl;
 
             // --- 构造 Google 授权 URL ---
             $authUrl = 'https://accounts.google.com/o/oauth2/auth?' . http_build_query([
@@ -111,7 +126,7 @@ class OAuthController extends Controller
             $state = $request->input('state', '');
             if (!empty($state)) {
                 // 解码从 state 传来的 redirect URL
-                $frontendCallbackUrl = $this->base64url_decode($state);
+                $frontendCallbackUrl = base64url_decode($state);
                 Log::info("Retrieved frontend callback URL from 'state' parameter", ['decoded_url' => $frontendCallbackUrl]);
             }
 
@@ -213,8 +228,7 @@ class OAuthController extends Controller
             }
 
             // --- 7. 从配置或其他地方获取邀请码 ---
-            // 为了简化，我们暂时使用前端 auth 接口传来的 code 参数作为邀请码
-            $inviteCode = $code ?? ''; 
+            $inviteCode = $code ?? ''; // TODO: Implement proper invite code retrieval if needed
 
             // --- 8. 调用内部登录/注册逻辑 ---
             Log::info("Calling internal OAuth login/register logic", ['email' => $email]);
@@ -357,12 +371,17 @@ class OAuthController extends Controller
      */
     private function oauthLoginInternal($email, $name, $inviteCode = '')
     {
+        // --- 在 try 块开始时记录入口信息 ---
+        safe_error_log("oauthLoginInternal called with: email={$email}, name={$name}, inviteCode={$inviteCode}", 'oauth_internal');
+
         try {
             $user = User::where('email', $email)->first();
+            safe_error_log("User lookup result: " . ($user ? 'User found' : 'User not found'), 'oauth_internal');
 
             // --- 注册流程 ---
             if (!$user) {
                 $password = Str::random(12);
+                safe_error_log("Generated password for new user: {$password} (for email: {$email})", 'oauth_internal'); // 仅供调试，生产环境不要记录密码
 
                 $user = new User();
                 $user->email = $email;
@@ -376,42 +395,57 @@ class OAuthController extends Controller
 
                 // --- 邀请码逻辑 ---
                 if (!empty($inviteCode)) {
+                    safe_error_log("Attempting to find invite code: {$inviteCode}", 'oauth_internal');
                     $inviteCodeRecord = InviteCode::where('code', $inviteCode)
                         ->where('status', 0)
                         ->first();
                     if ($inviteCodeRecord) {
+                        safe_error_log("Invite code found and valid, assigning to user.", 'oauth_internal');
                         $user->invite_user_id = $inviteCodeRecord->user_id ? $inviteCodeRecord->user_id : null;
                         if (!(int)config('v2board.invite_never_expire', 0)) {
                             $inviteCodeRecord->status = 1;
                             $inviteCodeRecord->save();
+                            safe_error_log("Invite code status updated to used.", 'oauth_internal');
                         }
+                    } else {
+                         safe_error_log("Invite code '{$inviteCode}' not found or already used.", 'oauth_internal');
                     }
                     // Note: If invite code is invalid and force is not on, we still register the user.
                 }
 
                 // --- 试用计划逻辑 (如果需要) ---
-                if ((int)config('v2board.try_out_plan_id', 0)) {
-                    $plan = \App\Models\Plan::find(config('v2board.try_out_plan_id'));
+                $tryOutPlanId = (int)config('v2board.try_out_plan_id', 0);
+                if ($tryOutPlanId) {
+                    safe_error_log("Try-out plan ID configured: {$tryOutPlanId}", 'oauth_internal');
+                    $plan = \App\Models\Plan::find($tryOutPlanId);
                     if ($plan) {
+                        safe_error_log("Try-out plan found: {$plan->name} (ID: {$plan->id})", 'oauth_internal');
                         $user->transfer_enable = $plan->transfer_enable * 1073741824;
                         $user->device_limit = $plan->device_limit;
                         $user->plan_id = $plan->id;
                         $user->group_id = $plan->group_id;
                         $user->expired_at = time() + (config('v2board.try_out_hour', 1) * 3600);
                         $user->speed_limit = $plan->speed_limit;
+                    } else {
+                         safe_error_log("Try-out plan ID {$tryOutPlanId} not found in database!", 'oauth_internal');
                     }
                 }
                 
                 // --- 保存用户 ---
+                safe_error_log("Attempting to save new user...", 'oauth_internal');
                 if (!$user->save()) {
+                    $errorMsg = 'Failed to save new user.';
+                    safe_error_log($errorMsg, 'oauth_internal');
                     return [
                         'success' => false,
                         'token' => null,
-                        'message' => 'Failed to save new user.'
+                        'message' => $errorMsg
                     ];
                 }
+                safe_error_log("New user saved successfully. User ID: {$user->id}", 'oauth_internal');
 
                 // --- 发送欢迎邮件 ---
+                safe_error_log("Dispatching welcome email job...", 'oauth_internal');
                 SendEmailJob::dispatch([
                     'email' => $user->email,
                     'subject' => __('Welcome to :app_name - Your account info', [
@@ -421,41 +455,50 @@ class OAuthController extends Controller
                     'template_value' => [
                         'name'     => $user->email,
                         'email'    => $user->email,
-                        'password' => $password,
+                        'password' => $password, // 调试用
                         'app_name' => config('v2board.app_name', 'V2Board'),
                         'url'      => config('v2board.app_url')
                     ]
                 ]);
+                safe_error_log("Welcome email job dispatched.", 'oauth_internal');
                 
                 // --- 登录后处理 ---
                 $user->last_login_at = time();
                 $user->save();
+                safe_error_log("User last_login_at updated.", 'oauth_internal');
 
             } else {
                 // --- 用户已存在，检查是否被封禁 ---
+                safe_error_log("Existing user found. Checking ban status...", 'oauth_internal');
                 if ($user->banned) {
+                    $errorMsg = 'Your account has been suspended.';
+                    safe_error_log($errorMsg, 'oauth_internal');
                     return [
                         'success' => false,
                         'token' => null,
-                        'message' => 'Your account has been suspended.'
+                        'message' => $errorMsg
                     ];
                 }
                 // 可以选择在此更新 last_login_at，但通常在生成 token 时处理
             }
 
             // --- 生成 Auth Data (Token) ---
+            safe_error_log("Generating auth token for user ID: {$user->id}", 'oauth_internal');
             $authService = new AuthService($user);
             // 我们只需要 token，所以直接生成
             $authData = $authService->generateAuthData(new Request()); // 传递一个空请求对象通常足够
             $token = $authData['token'] ?? null;
 
             if (!$token) {
+                 $errorMsg = 'Failed to generate authentication token.';
+                 safe_error_log($errorMsg, 'oauth_internal');
                  return [
                     'success' => false,
                     'token' => null,
-                    'message' => 'Failed to generate authentication token.'
+                    'message' => $errorMsg
                 ];
             }
+            safe_error_log("Auth token generated successfully.", 'oauth_internal');
 
             return [
                 'success' => true,
@@ -464,7 +507,10 @@ class OAuthController extends Controller
             ];
 
         } catch (\Exception $e) {
-            Log::error("Internal OAuth Login Error: " . $e->getMessage(), ['exception' => $e, 'email' => $email]);
+            $errorMsg = "Internal OAuth Login Error: " . $e->getMessage();
+            $traceMsg = "Stack trace: " . $e->getTraceAsString();
+            safe_error_log($errorMsg . "\n" . $traceMsg, 'oauth_internal_error'); // 记录到错误日志
+            Log::error($errorMsg, ['exception' => $e, 'email' => $email]);
             return [
                 'success' => false,
                 'token' => null,
