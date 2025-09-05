@@ -49,13 +49,22 @@ class Helper
         if ($special) {
             $chars .= '!@#$?|{/:%^&*()-_[]}<>=+,.';
         }
-        
         $str = '';
         $max = strlen($chars) - 1;
         for ($i = 0; $i < $len; $i++) {
             $str .= $chars[random_int(0, $max)];
         }
         return $str;
+    }
+
+    /**
+     * 生成 Telegram 登录码
+     * @param int $length 登录码长度，默认16位
+     * @return string
+     */
+    public static function generateTelegramLoginCode($length = 16)
+    {
+        return self::randomChar($length);
     }
 
     public static function multiPasswordVerify($algo, $salt, $password, $hash)

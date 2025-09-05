@@ -5,6 +5,7 @@ namespace App\Http\Controllers\V1\Guest;
 use App\Http\Controllers\Controller;
 use App\Services\TelegramService;
 use Illuminate\Http\Request;
+use App\Http\Controllers\V1\Passport\OAuthController;
 
 class TelegramController extends Controller
 {
@@ -85,6 +86,7 @@ class TelegramController extends Controller
         $obj->message_type = 'message';
         $obj->text = $data['message']['text'];
         $obj->is_private = $data['message']['chat']['type'] === 'private';
+        $obj->first_name = $data['message']['from']['first_name'] ?? 'User';
         if (isset($data['message']['reply_to_message']['text'])) {
             $obj->message_type = 'reply_message';
             $obj->reply_text = $data['message']['reply_to_message']['text'];
@@ -119,5 +121,13 @@ class TelegramController extends Controller
             $data['chat_join_request']['chat']['id'],
             $data['chat_join_request']['from']['id']
         );
+    }
+    
+    // 新增方法：处理 Telegram 登录回调
+    public function handleLoginCallback(Request $request)
+    {
+        // 创建 OAuthController 实例并调用 handleTelegramBotCallback
+        $oauthController = new OAuthController();
+        return $oauthController->handleTelegramBotCallback($request);
     }
 }
