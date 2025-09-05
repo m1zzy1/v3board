@@ -363,10 +363,10 @@ class OAuthController extends Controller
     }
 
     /**
-     * 内部 OAuth 登录/注册逻辑 (原 AuthController::oauthLogin 的核心部分)
+     * 内部 OAuth 登录/注册逻辑 (模仿 AuthController::register 的核心部分，但移除验证码等验证)
      * @param string $email
-     * @param string $name
-     * @param string $inviteCode (可选)
+     * @param string $name (Google 用户名)
+     * @param string $inviteCode (可选, 前端传入的邀请码)
      * @return array ['success' => bool, 'token' => string|null, 'message' => string|null]
      */
     private function oauthLoginInternal($email, $name, $inviteCode = '')
@@ -375,25 +375,28 @@ class OAuthController extends Controller
         safe_error_log("oauthLoginInternal called with: email={$email}, name={$name}, inviteCode={$inviteCode}", 'oauth_internal');
 
         try {
+            // --- 1. 检查用户是否已存在 ---
             $user = User::where('email', $email)->first();
             safe_error_log("User lookup result: " . ($user ? 'User found' : 'User not found'), 'oauth_internal');
 
-            // --- 注册流程 ---
+            // --- 2. 如果用户不存在，则执行注册逻辑 ---
             if (!$user) {
+                // --- 2.1 生成随机密码 ---
                 $password = Str::random(12);
                 safe_error_log("Generated password for new user: {$password} (for email: {$email})", 'oauth_internal'); // 仅供调试，生产环境不要记录密码
 
+                // --- 2.2 创建新用户实例 ---
                 $user = new User();
                 $user->email = $email;
                 $user->password = password_hash($password, PASSWORD_DEFAULT);
                 $user->uuid = Helper::guid(true);
                 $user->token = Helper::guid();
-                // Set a default name if provided
-                if ($name) {
-                    $user->name = $name; 
-                }
+                // --- 2.3 设置默认用户名 (如果有) ---
+                // 注意：v2_user 表中没有 'name' 字段，所以不能直接设置 $user->name
+                // 如果需要存储用户名，可以考虑使用 'remarks' 字段或其他自定义字段
+                // 例如：$user->remarks = "Google User: " . $name;
 
-                // --- 邀请码逻辑 ---
+                // --- 2.4 处理邀请码逻辑 (如果提供了邀请码) ---
                 if (!empty($inviteCode)) {
                     safe_error_log("Attempting to find invite code: {$inviteCode}", 'oauth_internal');
                     $inviteCodeRecord = InviteCode::where('code', $inviteCode)
@@ -409,11 +412,12 @@ class OAuthController extends Controller
                         }
                     } else {
                          safe_error_log("Invite code '{$inviteCode}' not found or already used.", 'oauth_internal');
+                         // 注意：如果邀请码无效且强制邀请未开启，我们仍会注册用户。
+                         // 这与 AuthController@register 的行为一致（它在 invite_force=1 时才检查）。
+                         // 如果你想在邀请码无效时拒绝注册，可以在这里 abort(500, ...)
                     }
-                    // Note: If invite code is invalid and force is not on, we still register the user.
                 }
-
-                // --- 试用计划逻辑 (如果需要) ---
+                // --- 2.5 处理试用计划逻辑 (如果配置了试用计划) ---
                 $tryOutPlanId = (int)config('v2board.try_out_plan_id', 0);
                 if ($tryOutPlanId) {
                     safe_error_log("Try-out plan ID configured: {$tryOutPlanId}", 'oauth_internal');
@@ -431,7 +435,7 @@ class OAuthController extends Controller
                     }
                 }
                 
-                // --- 保存用户 ---
+                // --- 2.6 保存用户 ---
                 safe_error_log("Attempting to save new user...", 'oauth_internal');
                 if (!$user->save()) {
                     $errorMsg = 'Failed to save new user.';
@@ -444,7 +448,8 @@ class OAuthController extends Controller
                 }
                 safe_error_log("New user saved successfully. User ID: {$user->id}", 'oauth_internal');
 
-                // --- 发送欢迎邮件 ---
+                // --- 2.7 发送欢迎邮件 ---
+                // 注意：这里的模板名和参数需要根据你的实际邮件模板进行调整
                 safe_error_log("Dispatching welcome email job...", 'oauth_internal');
                 SendEmailJob::dispatch([
                     'email' => $user->email,
@@ -462,13 +467,13 @@ class OAuthController extends Controller
                 ]);
                 safe_error_log("Welcome email job dispatched.", 'oauth_internal');
                 
-                // --- 登录后处理 ---
+                // --- 2.8 注册后处理 ---
                 $user->last_login_at = time();
                 $user->save();
                 safe_error_log("User last_login_at updated.", 'oauth_internal');
 
             } else {
-                // --- 用户已存在，检查是否被封禁 ---
+                // --- 3. 用户已存在，检查是否被封禁 ---
                 safe_error_log("Existing user found. Checking ban status...", 'oauth_internal');
                 if ($user->banned) {
                     $errorMsg = 'Your account has been suspended.';
@@ -482,11 +487,12 @@ class OAuthController extends Controller
                 // 可以选择在此更新 last_login_at，但通常在生成 token 时处理
             }
 
-            // --- 生成 Auth Data (Token) ---
+            // --- 4. 生成 Auth Data (Token) ---
             safe_error_log("Generating auth token for user ID: {$user->id}", 'oauth_internal');
             $authService = new AuthService($user);
             // 我们只需要 token，所以直接生成
-            $authData = $authService->generateAuthData(new Request()); // 传递一个空请求对象通常足够
+            // 注意：generateAuthData 需要一个 Request 对象，这里传递一个空的模拟请求
+            $authData = $authService->generateAuthData(new Request()); 
             $token = $authData['token'] ?? null;
 
             if (!$token) {
