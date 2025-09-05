@@ -432,23 +432,29 @@ class OAuthController extends Controller
                 safe_error_log("New user saved successfully. User ID: {$user->id}", 'oauth_internal');
 
                 // --- 2.7 发送欢迎邮件 ---
-                // 注意：这里的模板名和参数需要根据你的实际邮件模板进行调整
-                safe_error_log("Dispatching welcome email job...", 'oauth_internal');
-                SendEmailJob::dispatch([
-                    'email' => $user->email,
-                    'subject' => __('Welcome to :app_name - Your account info', [
-                        'app_name' => config('v2board.app_name', 'V2Board')
-                    ]),
-                    'template_name' => 'googleWelcome', // 确保你有这个模板
-                    'template_value' => [
-                        'name'     => $user->email,
-                        'email'    => $user->email,
-                        'password' => $password, // 调试用
-                        'app_name' => config('v2board.app_name', 'V2Board'),
-                        'url'      => config('v2board.app_url')
-                    ]
-                ]);
-                safe_error_log("Welcome email job dispatched.", 'oauth_internal');
+                // 注意：对于 Telegram 用户，不发送欢迎邮件，因为邮箱是构造的
+                // 只有真实的邮箱地址才发送欢迎邮件
+                if (strpos($user->email, 'tg_') !== 0) {
+                    // 非 Telegram 用户才发送欢迎邮件
+                    safe_error_log("Dispatching welcome email job...", 'oauth_internal');
+                    SendEmailJob::dispatch([
+                        'email' => $user->email,
+                        'subject' => __('Welcome to :app_name - Your account info', [
+                            'app_name' => config('v2board.app_name', 'V2Board')
+                        ]),
+                        'template_name' => 'googleWelcome', // 确保你有这个模板
+                        'template_value' => [
+                            'name'     => $user->email,
+                            'email'    => $user->email,
+                            'password' => $password, // 调试用
+                            'app_name' => config('v2board.app_name', 'V2Board'),
+                            'url'      => config('v2board.app_url')
+                        ]
+                    ]);
+                    safe_error_log("Welcome email job dispatched.", 'oauth_internal');
+                } else {
+                    safe_error_log("Skipping welcome email for Telegram user with constructed email.", 'oauth_internal');
+                }
                 
                 // --- 2.8 注册后处理 ---
                 $user->last_login_at = time();
