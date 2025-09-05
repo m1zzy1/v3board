@@ -147,20 +147,6 @@ class Login extends Telegram {
                 // 未知响应格式
                 $this->sendReply($message, "❌ 操作过程中发生未知错误，请稍后重试。");
             }
-                    
-                    $this->sendReply($message, $accountInfo, 'markdown');
-                } else {
-                    $this->sendReply($message, "✅ 注册成功！
-
-您已成功登录到网站。");
-                }
-            } else if (isset($responseData['error'])) {
-                // 注册失败
-                $this->sendReply($message, "❌ 注册失败: " . $responseData['error']);
-            } else {
-                // 未知响应格式
-                $this->sendReply($message, "❌ 注册过程中发生未知错误，请稍后重试。");
-            }
         } catch (\Exception $e) {
             Log::error("Telegram registration request failed: " . $e->getMessage());
             $this->sendReply($message, "❌ 处理注册请求时发生错误，请稍后重试。");
