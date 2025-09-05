@@ -287,11 +287,10 @@ class OAuthController extends Controller
                     // 构造我们自己的查询参数 (token 或 error)
                     $ourQueryParams = [];
                     if (!empty($token)) {
+                        // 传递与 AuthController 相同的三个字段作为独立参数
                         $ourQueryParams['token'] = $token;
-                        // 添加 auth_data 参数
-                        if (!empty($authData)) {
-                            $ourQueryParams['auth_data'] = urlencode(json_encode($authData));
-                        }
+                        $ourQueryParams['is_admin'] = $authData['is_admin'] ?? 0;
+                        $ourQueryParams['auth_data'] = $authData['auth_data'] ?? '';
                     } else if (!empty($errorMessage)) {
                          // 确保错误信息被正确编码
                         $ourQueryParams['error'] = urlencode($errorMessage);
@@ -357,13 +356,12 @@ class OAuthController extends Controller
             $authData = $result['auth_data'];
             Log::info("Telegram login successful, redirecting with token", ['token' => $token]);
             // 成功：重定向到仪表盘
-            // 构造查询参数包含 token 和 auth_data
+            // 传递与 AuthController 相同的三个字段作为独立参数
             $queryParams = [
-                'token' => $token
+                'token' => $token,
+                'is_admin' => $authData['is_admin'] ?? 0,
+                'auth_data' => $authData['auth_data'] ?? ''
             ];
-            if (!empty($authData)) {
-                $queryParams['auth_data'] = urlencode(json_encode($authData));
-            }
             $queryString = http_build_query($queryParams);
             $successRedirectUrl = $defaultFrontendUrl . '#/dashboard?' . $queryString;
             return redirect()->to($successRedirectUrl);
