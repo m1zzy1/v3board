@@ -237,6 +237,7 @@ class OAuthController extends Controller
 
             if ($result['success']) {
                 $token = $result['token'];
+                $authData = $result['auth_data'];
                 Log::info("Login/Register successful, got token", ['token' => $token]);
                 // 成功，token 已准备好，errorMessage 为 null
             } else {
@@ -287,6 +288,10 @@ class OAuthController extends Controller
                     $ourQueryParams = [];
                     if (!empty($token)) {
                         $ourQueryParams['token'] = $token;
+                        // 添加 auth_data 参数
+                        if (!empty($authData)) {
+                            $ourQueryParams['auth_data'] = urlencode(json_encode($authData));
+                        }
                     } else if (!empty($errorMessage)) {
                          // 确保错误信息被正确编码
                         $ourQueryParams['error'] = urlencode($errorMessage);
@@ -349,9 +354,18 @@ class OAuthController extends Controller
         $defaultFrontendUrl = config('v2board.app_url', url('/'));
         if ($result['success']) {
             $token = $result['token'];
+            $authData = $result['auth_data'];
             Log::info("Telegram login successful, redirecting with token", ['token' => $token]);
             // 成功：重定向到仪表盘
-            $successRedirectUrl = $defaultFrontendUrl . '#/dashboard?token=' . $token;
+            // 构造查询参数包含 token 和 auth_data
+            $queryParams = [
+                'token' => $token
+            ];
+            if (!empty($authData)) {
+                $queryParams['auth_data'] = urlencode(json_encode($authData));
+            }
+            $queryString = http_build_query($queryParams);
+            $successRedirectUrl = $defaultFrontendUrl . '#/dashboard?' . $queryString;
             return redirect()->to($successRedirectUrl);
         } else {
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/registration.';
@@ -490,7 +504,7 @@ class OAuthController extends Controller
             // --- 4. 生成 Auth Data (Token) ---
             safe_error_log("Generating auth token for user ID: {$user->id}", 'oauth_internal');
             $authService = new AuthService($user);
-            // 我们只需要 token，所以直接生成
+            // 我们需要完整的 auth_data，所以直接生成
             // 注意：generateAuthData 需要一个 Request 对象，这里传递一个空的模拟请求
             $authData = $authService->generateAuthData(new Request()); 
             $token = $authData['token'] ?? null;
@@ -509,6 +523,7 @@ class OAuthController extends Controller
             return [
                 'success' => true,
                 'token' => $token,
+                'auth_data' => $authData,
                 'message' => null
             ];
 
