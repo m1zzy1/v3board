@@ -10,8 +10,9 @@ use App\Jobs\SendEmailJob;
 use App\Utils\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Facades\Socialite; // 修复: 确保使用正确的反斜杠 
 use Illuminate\Support\Str;
+
 
 class OAuthController extends Controller
 {
