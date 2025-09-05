@@ -8,6 +8,8 @@ use App\Utils\CacheKey;
 use App\Models\User;
 use App\Utils\Helper;
 use Illuminate\Support\Facades\Log;
+use App\Http\Controllers\V1\Passport\OAuthController;
+use Illuminate\Http\Request;
 
 class Login extends Telegram {
     public $command = '/login';
@@ -93,45 +95,34 @@ class Login extends Telegram {
             'message' => $message->text
         ];
         
-        // 发送请求到 Telegram 登录回调端点
+        // 直接调用 OAuthController 的 handleTelegramBotCallback 方法
         try {
-            $url = url('/api/v1/guest/telegram/login');
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($requestData));
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Content-Type: application/x-www-form-urlencoded',
-                'Accept: application/json'
-            ]);
+            // 创建一个模拟的 Request 对象
+            $request = new Request();
+            $request->setMethod('POST');
+            $request->request->add($requestData);
             
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+            // 创建 OAuthController 实例并调用 handleTelegramBotCallback
+            $oauthController = new OAuthController();
+            $response = $oauthController->handleTelegramBotCallback($request);
             
-            if ($httpCode >= 200 && $httpCode < 300) {
-                $responseData = json_decode($response, true);
-                
-                if (isset($responseData['data']) && isset($responseData['data']['token'])) {
-                    // 登录成功
-                    $token = $responseData['data']['token'];
-                    // 发送成功消息
-                    $this->sendReply($message, "✅ 登录成功！
+            // 解析响应
+            $responseData = json_decode($response->getContent(), true);
+            
+            if (isset($responseData['data']) && isset($responseData['data']['token'])) {
+                // 登录成功
+                $token = $responseData['data']['token'];
+                // 发送成功消息
+                $this->sendReply($message, "✅ 登录成功！
 
 您已成功登录到网站。
 用户邮箱: {$user->email}");
-                } else if (isset($responseData['error'])) {
-                    // 登录失败
-                    $this->sendReply($message, "❌ 登录失败: " . $responseData['error']);
-                } else {
-                    // 未知响应格式
-                    $this->sendReply($message, "❌ 登录过程中发生未知错误，请稍后重试。");
-                }
+            } else if (isset($responseData['error'])) {
+                // 登录失败
+                $this->sendReply($message, "❌ 登录失败: " . $responseData['error']);
             } else {
-                // HTTP 错误
-                $this->sendReply($message, "❌ 登录请求失败，请稍后重试。");
-                Log::error("Telegram login HTTP error: " . $httpCode . " - " . $response);
+                // 未知响应格式
+                $this->sendReply($message, "❌ 登录过程中发生未知错误，请稍后重试。");
             }
         } catch (\Exception $e) {
             Log::error("Telegram login request failed: " . $e->getMessage());
