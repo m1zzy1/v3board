@@ -68,7 +68,7 @@ class Login extends Telegram {
                 $this->sendReply($message, "✅ 登录成功！
 
 您已成功登录到网站。
-用户邮箱: {$user->email}");
+用户邮箱: {$user->email}", 'markdown');
             } else if (isset($responseData['error'])) {
                 // 登录失败
                 $this->sendReply($message, "❌ 登录失败: " . $responseData['error']);
@@ -112,15 +112,43 @@ class Login extends Telegram {
                 // 获取用户信息
                 $user = User::where('telegram_id', $tgId)->first();
                 if ($user) {
-                    // 发送账户信息给用户
-                    $this->sendReply($message, "✅ 注册成功！
+                    // 检查是否有明文密码返回
+                    $plainPassword = $responseData['data']['plain_password'] ?? null;
+                    
+                    if ($plainPassword) {
+                        // 使用 Markdown 格式发送账户信息给用户
+                        $accountInfo = "✅ **注册成功！**
 
 欢迎使用我们的服务！
-您的账户信息：
-📧 邮箱: {$user->email}
-🔑 密码: （系统生成的随机密码）
 
-请妥善保管您的账户信息，您已成功登录到网站。");
+您的账户信息：
+📧 **邮箱**: `{$user->email}`
+🔑 **密码**: `{$plainPassword}`
+
+请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
+                        
+                        $this->sendReply($message, $accountInfo, 'markdown');
+                    } else {
+                        // 登录成功，没有明文密码说明是已存在的用户
+                        $this->sendReply($message, "✅ 登录成功！
+
+您已成功登录到网站。
+用户邮箱: {$user->email}", 'markdown');
+                    }
+                } else {
+                    $this->sendReply($message, "✅ 操作成功！
+
+您已成功登录到网站。");
+                }
+            } else if (isset($responseData['error'])) {
+                // 注册失败
+                $this->sendReply($message, "❌ 操作失败: " . $responseData['error']);
+            } else {
+                // 未知响应格式
+                $this->sendReply($message, "❌ 操作过程中发生未知错误，请稍后重试。");
+            }
+                    
+                    $this->sendReply($message, $accountInfo, 'markdown');
                 } else {
                     $this->sendReply($message, "✅ 注册成功！
 
@@ -139,10 +167,10 @@ class Login extends Telegram {
         }
     }
     
-    private function sendReply($message, $text) {
+    private function sendReply($message, $text, $parseMode = '') {
         try {
             $telegramService = $this->telegramService;
-            $telegramService->sendMessage($message->chat_id, $text);
+            $telegramService->sendMessage($message->chat_id, $text, $parseMode);
         } catch (\Exception $e) {
             Log::error("Failed to send Telegram message: " . $e->getMessage());
         }

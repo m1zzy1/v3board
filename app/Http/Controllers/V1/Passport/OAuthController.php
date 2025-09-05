@@ -349,7 +349,7 @@ class OAuthController extends Controller
      * @param string $email
      * @param string $name (Google 用户名)
      * @param string $inviteCode (可选, 前端传入的邀请码)
-     * @return array ['success' => bool, 'token' => string|null, 'message' => string|null]
+     * @return array ['success' => bool, 'token' => string|null, 'message' => string|null, 'plain_password' => string|null]
      */
     private function oauthLoginInternal($email, $name, $inviteCode = '')
     {
@@ -359,6 +359,7 @@ class OAuthController extends Controller
         try {
             // --- 1. 检查用户是否已存在 ---
             $user = User::where('email', $email)->first();
+            $userExists = !!$user; // 记录用户是否已存在
             safe_error_log("User lookup result: " . ($user ? 'User found' : 'User not found'), 'oauth_internal');
 
             // --- 2. 如果用户不存在，则执行注册逻辑 ---
@@ -483,6 +484,8 @@ class OAuthController extends Controller
                  return [
                     'success' => false,
                     'token' => null,
+                    'auth_data' => null,
+                    'plain_password' => null,
                     'message' => $errorMsg
                 ];
             }
@@ -492,6 +495,7 @@ class OAuthController extends Controller
                 'success' => true,
                 'token' => $token,
                 'auth_data' => $authData,
+                'plain_password' => (!$userExists) ? $password : null, // 只有新用户才返回明文密码
                 'message' => null
             ];
 
@@ -549,9 +553,10 @@ class OAuthController extends Controller
                 try {
                     $user = new User();
                     $user->email = $email;
-                    // 生成随机密码
-                    $password = Helper::guid();
-                    $user->password = password_hash($password, PASSWORD_DEFAULT);
+                    // 生成明文密码
+                    $plainPassword = Helper::randomChar(12);
+                    // 加密后存储到数据库
+                    $user->password = password_hash($plainPassword, PASSWORD_DEFAULT);
                     $user->uuid = Helper::guid(true);
                     $user->token = Helper::guid();
                     $user->telegram_id = $tgId;
@@ -596,16 +601,24 @@ class OAuthController extends Controller
         if ($result['success']) {
             $token = $result['token'];
             $authData = $result['auth_data'];
+            $plainPassword = $result['plain_password'];
             Log::info("Telegram login successful", ['token' => $token]);
             
             // 返回登录数据
-            return response()->json([
+            $responseData = [
                 'data' => [
                     'token' => $token,
                     'is_admin' => $authData['is_admin'] ?? 0,
                     'auth_data' => $authData['auth_data'] ?? ''
                 ]
-            ]);
+            ];
+            
+            // 如果有明文密码，也添加到响应中
+            if ($plainPassword) {
+                $responseData['data']['plain_password'] = $plainPassword;
+            }
+            
+            return response()->json($responseData);
         } else {
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login.';
             Log::error("Telegram login failed internally.", ['error' => $errorMessage, 'tg_id' => $tgId]);
