@@ -10,14 +10,13 @@ use App\Jobs\SendEmailJob;
 use App\Utils\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Laravel\Socialite\Facades\Socialite; // 修复: 确保使用正确的反斜杠
 use Illuminate\Support\Str;
-
+use GuzzleHttp\Client as GuzzleClient; // 使用 GuzzleHttp
+use GuzzleHttp\Exception\RequestException; // 处理 Guzzle 异常
 
 class OAuthController extends Controller
 {
     /**
-     * 这是测试代码，看看会不会提交更新上去
      * 统一 OAuth 入口 (POST)
      * 接收 type (google), code (invite_code), redirect_domain
      * 注意：Telegram 通常由前端直接触发，不通过此入口
@@ -41,10 +40,7 @@ class OAuthController extends Controller
                 ]
             ]);
 
-            // --- 动态设置 Google Redirect URI ---
-            $redirectUri = ($redirectDomain ? rtrim($redirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
-
-            // --- 从 .env (config/services.php) 读取 Google 凭据 ---
+            // --- 从 .env 读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
             $googleClientSecret = config('services.google.client_secret');
 
@@ -53,25 +49,21 @@ class OAuthController extends Controller
                 return response()->json(['error' => 'Google OAuth is not properly configured on the server.'], 500);
             }
 
-            try {
-                // 使用 Socialite 并动态设置 redirect_uri 和凭据
-                return Socialite::driver('google')
-                    ->redirectUrl($redirectUri)
-                    ->setConfig([
-                        'client_id' => $googleClientId,
-                        'client_secret' => $googleClientSecret,
-                    ])
-                    ->redirect();
-            } catch (\Exception $e) {
-                // 捕获 Socialite 或 GuzzleHttp (用于网络请求) 抛出的任何异常
-                Log::error("Google OAuth Redirect Error: " . $e->getMessage(), ['exception' => $e]);
-                // 返回具体的错误信息给前端
-                return response()->json([
-                    'error' => 'Failed to initiate Google OAuth redirect.',
-                    'message' => $e->getMessage() // 可以根据安全策略决定是否暴露详细信息
-                ], 500);
-            }
+            // --- 动态设置 Google Redirect URI ---
+            $redirectUri = ($redirectDomain ? rtrim($redirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
 
+            // --- 构造 Google 授权 URL ---
+            $authUrl = 'https://accounts.google.com/o/oauth2/auth?' . http_build_query([
+                'client_id' => $googleClientId,
+                'redirect_uri' => $redirectUri,
+                'scope' => 'email profile', // 请求访问邮箱和基本资料
+                'response_type' => 'code', // 请求 Authorization Code
+                'access_type' => 'offline', // 请求 refresh token (可选)
+                'prompt' => 'consent' // 强制显示同意界面 (可选，确保能获取到 code)
+            ]);
+
+            // 重定向用户到 Google
+            return redirect($authUrl);
         } else {
             return response()->json(['error' => 'Unsupported OAuth type'], 400);
         }
@@ -79,17 +71,17 @@ class OAuthController extends Controller
 
     /**
      * Google OAuth 回调处理 (GET)
+     * 处理 Google 返回的 Authorization Code，并用它换取 Access Token 和用户信息
      */
     public function handleGoogleCallback(Request $request)
     {
         try {
-            // --- 动态设置 Google Redirect URI (用于获取用户信息) ---
-            // 从 Session 获取之前存储的 redirect_domain 来构建回调 URL
+            // --- 从 Session 获取之前存储的参数 ---
             $oauthParams = session('oauth_params', []);
             $storedRedirectDomain = $oauthParams['redirect_domain'] ?? '';
             $redirectUri = ($storedRedirectDomain ? rtrim($storedRedirectDomain, '/') : url('')) . '/api/v1/passport/oauth/google/callback';
 
-            // --- 从 .env (config/services.php) 读取 Google 凭据 ---
+            // --- 从 .env 读取 Google OAuth 配置 ---
             $googleClientId = config('services.google.client_id');
             $googleClientSecret = config('services.google.client_secret');
 
@@ -98,22 +90,70 @@ class OAuthController extends Controller
                 return redirect()->to($this->getFailureRedirectUrl('Google OAuth is not properly configured on the server.'));
             }
 
-            // 使用 Socialite 并动态设置 redirect_uri 和凭据
-            $googleUser = Socialite::driver('google')
-                ->redirectUrl($redirectUri)
-                ->setConfig([
-                    'client_id' => $googleClientId,
-                    'client_secret' => $googleClientSecret,
-                ])
-                ->user();
+            // --- 1. 从回调 URL 获取 Authorization Code ---
+            $authorizationCode = $request->input('code');
+            if (!$authorizationCode) {
+                Log::warning("Google OAuth callback missing 'code' parameter.", ['query_params' => $request->all()]);
+                return redirect()->to($this->getFailureRedirectUrl('Missing authorization code from Google.'));
+            }
 
-            $email = $googleUser->getEmail();
-            $name = $googleUser->getName();
+            // --- 2. 使用 Authorization Code 换取 Access Token ---
+            $httpClient = new GuzzleClient();
+            try {
+                $tokenResponse = $httpClient->post('https://oauth2.googleapis.com/token', [
+                    'form_params' => [
+                        'client_id' => $googleClientId,
+                        'client_secret' => $googleClientSecret,
+                        'code' => $authorizationCode,
+                        'grant_type' => 'authorization_code',
+                        'redirect_uri' => $redirectUri,
+                    ]
+                ]);
+                $tokenData = json_decode($tokenResponse->getBody(), true);
+            } catch (RequestException $e) {
+                // 捕获 Guzzle HTTP 请求异常 (网络错误, 4xx, 5xx 响应)
+                $errorMessage = 'Google OAuth Token Exchange HTTP request failed.';
+                $context = ['exception' => $e->getMessage()];
+                if ($e->hasResponse()) {
+                    $context['response_body'] = $e->getResponse()->getBody()->getContents();
+                    $context['response_status'] = $e->getResponse()->getStatusCode();
+                }
+                Log::error($errorMessage, $context);
+                return redirect()->to($this->getFailureRedirectUrl('Network error or invalid response during Google token exchange.'));
+            }
+
+            $accessToken = $tokenData['access_token'] ?? null;
+            if (!$accessToken) {
+                Log::error("Failed to obtain access token from Google.", ['token_response' => $tokenData]);
+                return redirect()->to($this->getFailureRedirectUrl('Failed to obtain access token from Google.'));
+            }
+
+            // --- 3. 使用 Access Token 获取用户信息 ---
+            try {
+                $userResponse = $httpClient->get('https://www.googleapis.com/oauth2/v2/userinfo', [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $accessToken
+                    ]
+                ]);
+                $googleUserData = json_decode($userResponse->getBody(), true);
+            } catch (RequestException $e) {
+                // 捕获 Guzzle HTTP 请求异常 (网络错误, 4xx, 5xx 响应)
+                $errorMessage = 'Google OAuth User Info HTTP request failed.';
+                $context = ['exception' => $e->getMessage()];
+                if ($e->hasResponse()) {
+                    $context['response_body'] = $e->getResponse()->getBody()->getContents();
+                    $context['response_status'] = $e->getResponse()->getStatusCode();
+                }
+                Log::error($errorMessage, $context);
+                return redirect()->to($this->getFailureRedirectUrl('Network error or invalid response while fetching user info from Google.'));
+            }
+
+            $email = $googleUserData['email'] ?? null;
+            $name = $googleUserData['name'] ?? null;
 
             if (!$email) {
-                 Log::warning("Google did not provide an email address.", ['google_user' => $googleUser]);
-                 // 重定向到前端错误页面
-                 return redirect()->to($this->getFailureRedirectUrl('Google did not provide an email address.'));
+                Log::warning("Google did not provide an email address.", ['google_user_data' => $googleUserData]);
+                return redirect()->to($this->getFailureRedirectUrl('Google did not provide an email address.'));
             }
 
             $inviteCode = $oauthParams['code'] ?? '';
@@ -122,7 +162,7 @@ class OAuthController extends Controller
             // 清理 Session
             $request->session()->forget('oauth_params');
 
-            // --- 调用内部登录/注册逻辑 ---
+            // --- 4. 调用内部登录/注册逻辑 ---
             $result = $this->oauthLoginInternal($email, $name, $inviteCode);
 
             if ($result['success']) {
@@ -144,9 +184,8 @@ class OAuthController extends Controller
             }
 
         } catch (\Exception $e) {
-            // 捕获 Socialite, GuzzleHttp 或内部逻辑抛出的任何异常
+            // 捕获其他所有异常
             Log::error("Google OAuth Callback Error: " . $e->getMessage(), ['exception' => $e]);
-            // 重定向到前端错误页面，并附带错误信息
             return redirect()->to($this->getFailureRedirectUrl('An error occurred during Google authentication.'));
         }
     }
@@ -165,7 +204,7 @@ class OAuthController extends Controller
 
         $tgId = $request->input('id');
         $firstName = $request->input('first_name', 'TG User');
-
+        
         // 使用配置的 app_url 来生成邮箱域名部分
         $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com';
         $email = "tg_{$tgId}@{$appUrlHost}"; // 构造唯一邮箱
@@ -210,7 +249,7 @@ class OAuthController extends Controller
                 $user->token = Helper::guid();
                 // Set a default name if provided
                 if ($name) {
-                    $user->name = $name;
+                    $user->name = $name; 
                 }
 
                 // --- 邀请码逻辑 ---
@@ -240,7 +279,7 @@ class OAuthController extends Controller
                         $user->speed_limit = $plan->speed_limit;
                     }
                 }
-
+                
                 // --- 保存用户 ---
                 if (!$user->save()) {
                     return [
@@ -265,7 +304,7 @@ class OAuthController extends Controller
                         'url'      => config('v2board.app_url')
                     ]
                 ]);
-
+                
                 // --- 登录后处理 ---
                 $user->last_login_at = time();
                 $user->save();
@@ -356,8 +395,8 @@ class OAuthController extends Controller
 
         if (strcmp($hash, $check_hash) !== 0) {
              Log::warning("Telegram auth hash mismatch.", [
-                 'received_hash' => $check_hash,
-                 'calculated_hash' => $hash,
+                 'received_hash' => $check_hash, 
+                 'calculated_hash' => $hash, 
                  'data' => $data,
                  'data_check_string' => $data_check_string // For debugging
              ]);
