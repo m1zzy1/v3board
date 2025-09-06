@@ -698,8 +698,23 @@ class OAuthController extends Controller
 
             // 准备存储的数据
             $this->debugLog("SUCCESS BRANCH: Preparing login result data");
+            
+            // 确定用于存储的用户对象
+            // 1. 如果是新创建的用户 ($newlyCreatedUser)，使用它
+            // 2. 否则，使用之前查找的用户 ($user)
+            $userToStore = null;
+            if (!$userExistedBeforeOAuth && isset($newlyCreatedUser) && $newlyCreatedUser) {
+                $userToStore = $newlyCreatedUser;
+                $this->debugLog("SUCCESS BRANCH: Using newly created user for storage", ['user_id' => $userToStore->id]);
+            } else if ($user) {
+                $userToStore = $user;
+                $this->debugLog("SUCCESS BRANCH: Using existing user for storage", ['user_id' => $userToStore->id]);
+            } else {
+                $this->debugLog("SUCCESS BRANCH: WARNING - No user object available for storage");
+            }
+            
             $loginResultData = [
-                'user_id' => $user->id ?? null, // 使用已经查找到的 $user 对象的 id
+                'user_id' => $userToStore ? $userToStore->id : null,
                 'token' => $token,
                 'is_admin' => $authData['is_admin'] ?? 0,
                 'auth_data' => $authData['auth_data'] ?? '',
