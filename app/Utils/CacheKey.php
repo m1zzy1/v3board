@@ -37,7 +37,8 @@ class CacheKey
         'USER_SESSIONS' => '用户session',
         'FORGET_REQUEST_LIMIT' => '找回密码次数限制',
         'TELEGRAM_LOGIN_HASH' => 'Telegram登录哈希值',
-        'TELEGRAM_LOGIN_RESULT' => 'Telegram登录结果缓存' // 用于存储前端轮询的登录结果
+        'TELEGRAM_LOGIN_RESULT' => 'Telegram登录结果缓存', // 用于存储前端轮询的登录结果
+        'EMAIL_VERIFY_CODE_CONTEXT' => '邮箱验证码用途上下文' // 用于记录邮箱验证码的生成目的，防止跨场景滥用
     ];
 
     public static function get(string $key, $uniqueValue)
