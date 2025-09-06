@@ -699,7 +699,7 @@ class OAuthController extends Controller
             // 准备存储的数据
             $this->debugLog("SUCCESS BRANCH: Preparing login result data");
             $loginResultData = [
-                'user_id' => $result['auth_data']['user']['id'] ?? null, // 从 auth_data 中获取 user_id
+                'user_id' => $user->id ?? null, // 使用已经查找到的 $user 对象的 id
                 'token' => $token,
                 'is_admin' => $authData['is_admin'] ?? 0,
                 'auth_data' => $authData['auth_data'] ?? '',
