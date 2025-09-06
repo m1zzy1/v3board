@@ -28,6 +28,7 @@ class TelegramController extends Controller
 
     public function webhook(Request $request)
     {
+        \Log::info("=== TelegramController@webhook called ===");
         $this->formatMessage($request->input());
         $this->formatChatJoinRequest($request->input());
         $this->handle();
