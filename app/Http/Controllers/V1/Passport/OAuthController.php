@@ -596,9 +596,25 @@ class OAuthController extends Controller
         ]);
         $result = $this->oauthLoginInternal($email, $name);
         // 调试日志：确认 handleTelegramBotCallback 接收到了 oauthLoginInternal 的返回值
-        \Log::info("oauthLoginInternal returned to handleTelegramBotCallback", ['result' => $result]);
+        \Log::info("oauthLoginInternal returned to handleTelegramBotCallback", [
+            'result' => $result,
+            'type' => gettype($result),
+            'keys' => is_array($result) ? array_keys($result) : 'N/A'
+        ]);
+        
+        // 检查 $result 是否为数组且包含 'success' 键
+        if (!is_array($result)) {
+            \Log::error("oauthLoginInternal did not return an array", ['result' => $result, 'type' => gettype($result)]);
+            return response()->json(['error' => 'Internal error: Invalid return type from oauthLoginInternal'], 500);
+        }
+        
+        if (!array_key_exists('success', $result)) {
+            \Log::error("oauthLoginInternal return array missing 'success' key", ['result' => $result]);
+            return response()->json(['error' => 'Internal error: Missing success key from oauthLoginInternal'], 500);
+        }
 
         if ($result['success']) {
+            \Log::info("Entered if (\$result['success']) block", ['success_value' => $result['success']]);
             $token = $result['token'];
             $authData = $result['auth_data'];
             $plainPassword = $result['plain_password'];
