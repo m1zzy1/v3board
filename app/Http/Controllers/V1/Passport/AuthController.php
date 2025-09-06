@@ -322,19 +322,14 @@ class AuthController extends Controller
     public function changeEmail(AuthChangeEmail $request)
     {
         // --- 新增：调试日志记录 ---
-        $logData = [
-            'timestamp' => now()->toISOString(),
-            'action' => 'changeEmail_start',
-            'request_data' => $request->only(['new_email', 'email_code']),
-        ];
-        \Log::debug("Passport Auth ChangeEmail Debug Start", $logData);
+        $this->debugLog("START - Received request", $request->only(['new_email', 'email_code']));
         // --- 结束新增 ---
 
         /** @var User $user */
         $user = $request->user(); // 从 auth:api 中间件获取当前用户
 
         // --- 新增：调试用户对象 ---
-        \Log::debug("Passport Auth ChangeEmail Debug User", [
+        $this->debugLog("User object retrieved", [
             'user_type' => gettype($user),
             'user_is_null' => is_null($user),
             'user_id' => $user ? $user->id : null,
@@ -343,7 +338,7 @@ class AuthController extends Controller
         // --- 结束新增 ---
 
         if (!$user) {
-            \Log::warning("Passport Auth ChangeEmail: Authenticated user not found.");
+            $this->debugLog("FATAL ERROR: Authenticated user not found.");
             abort(500, '用户未认证或认证已过期，请重新登录');
         }
 
@@ -352,7 +347,7 @@ class AuthController extends Controller
 
         // 检查新邮箱是否与旧邮箱相同
         if ($user->email === $newEmail) {
-            \Log::info("Passport Auth ChangeEmail: New email is the same as current email.", [
+            $this->debugLog("ERROR: New email is the same as current email.", [
                 'user_id' => $user->id,
                 'email' => $newEmail,
             ]);
@@ -361,14 +356,14 @@ class AuthController extends Controller
 
         // 检查系统是否开启了邮箱验证
         $emailVerifyEnabled = (bool)config('v2board.email_verify', 0);
-        \Log::debug("Passport Auth ChangeEmail: Email verification status", [
+        $this->debugLog("Email verification status", [
             'enabled' => $emailVerifyEnabled,
         ]);
 
         if ($emailVerifyEnabled) {
             // 如果开启了邮箱验证，必须提供验证码
             if (!$emailCode) {
-                \Log::info("Passport Auth ChangeEmail: Email code required but not provided.", [
+                $this->debugLog("ERROR: Email code required but not provided.", [
                     'user_id' => $user->id,
                     'new_email' => $newEmail,
                 ]);
@@ -378,7 +373,7 @@ class AuthController extends Controller
             // 验证验证码
             $cacheKey = CacheKey::get('EMAIL_VERIFY_CODE', $newEmail);
             $cachedCode = Cache::get($cacheKey);
-            \Log::debug("Passport Auth ChangeEmail: Verifying email code", [
+            $this->debugLog("Verifying email code", [
                 'user_id' => $user->id,
                 'new_email' => $newEmail,
                 'cache_key' => $cacheKey,
@@ -387,7 +382,7 @@ class AuthController extends Controller
             ]);
 
             if ((string)$cachedCode !== (string)$emailCode) {
-                \Log::warning("Passport Auth ChangeEmail: Invalid or expired email code.", [
+                $this->debugLog("ERROR: Invalid or expired email code.", [
                     'user_id' => $user->id,
                     'new_email' => $newEmail,
                     'cached_code' => $cachedCode,
@@ -397,20 +392,20 @@ class AuthController extends Controller
             }
 
             // 验证码正确，可以继续
-            \Log::debug("Passport Auth ChangeEmail: Email code verified successfully.", [
+            $this->debugLog("SUCCESS: Email code verified successfully.", [
                 'user_id' => $user->id,
                 'new_email' => $newEmail,
             ]);
 
         } else {
-            \Log::debug("Passport Auth ChangeEmail: Email verification disabled, skipping code check.", [
+            $this->debugLog("INFO: Email verification disabled, skipping code check.", [
                 'user_id' => $user->id,
                 'new_email' => $newEmail,
             ]);
         }
 
         // 更新用户邮箱
-        \Log::debug("Passport Auth ChangeEmail: Updating user email.", [
+        $this->debugLog("INFO: Updating user email.", [
             'user_id' => $user->id,
             'old_email' => $user->email,
             'new_email' => $newEmail,
@@ -418,7 +413,7 @@ class AuthController extends Controller
         
         $user->email = $newEmail;
         if (!$user->save()) {
-            \Log::error("Passport Auth ChangeEmail: Failed to update user email in database.", [
+            $this->debugLog("ERROR: Failed to update user email in database.", [
                 'user_id' => $user->id,
                 'new_email' => $newEmail,
             ]);
@@ -428,7 +423,7 @@ class AuthController extends Controller
         // 如果开启了邮箱验证并且验证码已使用，则清除验证码缓存
         if ($emailVerifyEnabled && $cachedCode) {
             Cache::forget($cacheKey);
-            \Log::debug("Passport Auth ChangeEmail: Used email verification code cleared from cache.", [
+            $this->debugLog("INFO: Used email verification code cleared from cache.", [
                 'user_id' => $user->id,
                 'cache_key' => $cacheKey,
             ]);
@@ -441,10 +436,31 @@ class AuthController extends Controller
             'new_email' => $newEmail,
             'email_verify_enabled' => $emailVerifyEnabled
         ]);
+        
+        $this->debugLog("SUCCESS: User email updated.", [
+            'user_id' => $user->id,
+            'new_email' => $newEmail,
+        ]);
 
         return response([
             'data' => true,
             'message' => '邮箱地址已成功更新'
         ]);
     }
+    
+    /**
+     * 专门用于调试 changeEmail 的日志记录方法
+     * 使用 error_log 确保即使在 Laravel 日志系统出问题时也能记录
+     */
+    private function debugLog($message, $data = []) {
+        $log_prefix = "[" . date('Y-m-d H:i:s') . "] [changeEmail] ";
+        $log_message = $log_prefix . $message;
+        if (!empty($data)) {
+            $log_message .= " | Data: " . json_encode($data, JSON_UNESCAPED_UNICODE);
+        }
+        $log_message .= PHP_EOL;
+        error_log($log_message, 3, storage_path('logs/debug.log'));
+        flush();
+    }
+
 }
