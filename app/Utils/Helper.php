@@ -67,6 +67,36 @@ class Helper
         return self::randomChar($length);
     }
 
+    /**
+     * 对邮箱地址进行脱敏处理
+     * 例如：test@example.com -> t***t@example.com
+     * @param string $email 完整的邮箱地址
+     * @return string 脱敏后的邮箱地址
+     */
+    public static function maskEmail($email)
+    {
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            // 如果不是有效邮箱，返回原值或一个默认值
+            return $email;
+        }
+
+        $emailParts = explode('@', $email);
+        $username = $emailParts[0];
+        $domain = $emailParts[1];
+
+        $usernameLength = strlen($username);
+        if ($usernameLength == 1) {
+            // 如果用户名只有1位，例如 a@gmail.com -> a***@gmail.com
+            return $username . '***@' . $domain;
+        } else if ($usernameLength == 2) {
+            // 如果用户名只有2位，例如 ab@gmail.com -> a***b@gmail.com
+            return $username[0] . '***' . $username[1] . '@' . $domain;
+        } else {
+            // 如果用户名大于2位，例如 test@gmail.com -> t***t@gmail.com
+            return $username[0] . '***' . $username[$usernameLength - 1] . '@' . $domain;
+        }
+    }
+
     public static function multiPasswordVerify($algo, $salt, $password, $hash)
     {
         switch($algo) {

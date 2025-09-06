@@ -103,23 +103,27 @@ class Login extends Telegram {
             $responseData = json_decode($response->getContent(), true);
 
             if (isset($responseData['data']) && isset($responseData['data']['token'])) {
-                // 注册并登录成功
+                // 操作成功（注册或登录）
                 $token = $responseData['data']['token'];
+
+                // 检查是否有明文密码返回，以此判断是首次注册还是后续登录
+                $plainPassword = $responseData['data']['plain_password'] ?? null;
+                $isFirstRegistration = !is_null($plainPassword);
 
                 // 获取用户信息
                 // 注意：新创建的用户应该有 telegram_id，所以我们直接查询
                 $user = User::where('telegram_id', $tgId)->first();
                 if ($user) {
-                    // 检查是否有明文密码返回
-                    $plainPassword = $responseData['data']['plain_password'] ?? null;
-
-                    if ($plainPassword) {
-                        // 使用 Markdown 格式发送账户信息给用户
+                    if ($isFirstRegistration) {
+                        // 首次注册成功
+                        // 使用 Markdown 格式发送账户信息给用户，显示完整邮箱
                         $accountInfo = "✅ **注册成功！**\n\n欢迎使用我们的服务！\n您的账户信息：\n📧 **邮箱**: `{$user->email}`\n🔑 **密码**: `{$plainPassword}`\n\n您可以继续在网页操作，请及时更换邮箱为您的常用邮箱\n请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
                         $this->sendReply($message, $accountInfo, 'markdown');
                     } else {
-                        // 登录成功，没有明文密码说明是已存在的用户
-                        $this->sendReply($message, "✅ 3登录成功！\n\n您已成功登录到网站。\n用户邮箱: {$user->email}", 'markdown');
+                        // 后续登录成功
+                        // 对邮箱进行脱敏处理
+                        $maskedEmail = \App\Utils\Helper::maskEmail($user->email);
+                        $this->sendReply($message, "✅ 登录成功！\n\n您已成功登录到网站。\n用户邮箱: {$maskedEmail}", 'markdown');
                     }
                 } else {
                     // 如果通过 Telegram ID 找不到用户，尝试通过邮箱查找
@@ -129,19 +133,20 @@ class Login extends Telegram {
                     $user = User::where('email', $email)->first();
 
                     if ($user) {
-                        // 检查是否有明文密码返回
-                        $plainPassword = $responseData['data']['plain_password'] ?? null;
-
-                        if ($plainPassword) {
-                            // 使用 Markdown 格式发送账户信息给用户
+                        if ($isFirstRegistration) {
+                            // 首次注册成功（通过邮箱找到的旧用户，这种情况理论上 plainPassword 应该存在）
+                            // 使用 Markdown 格式发送账户信息给用户，显示完整邮箱
                             $accountInfo = "✅ **注册成功！**\n\n欢迎使用我们的服务！\n您的账户信息：\n📧 **邮箱**: `{$user->email}`\n🔑 **密码**: `{$plainPassword}`\n\n您可以继续在网页操作，请及时更换邮箱为您的常用邮箱\n请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
-
                             $this->sendReply($message, $accountInfo, 'markdown');
                         } else {
-                            // 登录成功，没有明文密码说明是已存在的用户
-                            $this->sendReply($message, "✅ 登录成功！\n\n您已成功登录到网站。\n用户邮箱: {$user->email}", 'markdown');
+                            // 后续登录成功（通过邮箱找到的旧用户）
+                            // 对邮箱进行脱敏处理
+                            $maskedEmail = \App\Utils\Helper::maskEmail($user->email);
+                            $this->sendReply($message, "✅ 登录成功！\n\n您已成功登录到网站。\n用户邮箱: {$maskedEmail}", 'markdown');
                         }
                     } else {
+                        // 理论上不应该走到这里，因为 oauthLoginInternal 应该已经处理了用户创建或查找
+                        // 但为了健壮性，还是提供一个通用的成功消息
                         $this->sendReply($message, "✅ 操作成功！\n您已成功登录到网站。");
                     }
                 }
