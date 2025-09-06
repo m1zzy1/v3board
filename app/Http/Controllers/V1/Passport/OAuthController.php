@@ -800,24 +800,36 @@ class OAuthController extends Controller
      */
     public function checkTelegramLogin(Request $request)
     {
+        $this->debugLog("checkTelegramLogin START");
+        
         \Log::info("=== DEBUG checkTelegramLogin START ===");
-
+        
         $code = $request->input('code'); // 这里的 code 就是前端获取到的 hash 值
+        $this->debugLog("EXACT_CODE_RECEIVED_FROM_FRONTEND", ['code' => $code]);
         \Log::info("EXACT_CODE_RECEIVED_FROM_FRONTEND", ['code' => $code]);
-
+        
         if (!$code) {
+            $this->debugLog("checkTelegramLogin ERROR: code is required");
             \Log::warning("Telegram login check failed: code is required");
             return response()->json(['error' => 'code is required'], 400);
         }
 
         // 使用 hash 构造缓存键来查找登录结果
+        $this->debugLog("Constructing cache key");
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_RESULT', $code);
+        $this->debugLog("EXACT_CACHE_KEY_FOR_CHECKING", ['cache_key' => $cacheKey]);
         \Log::info("EXACT_CACHE_KEY_FOR_CHECKING", ['cache_key' => $cacheKey]);
-
+        
+        $this->debugLog("Calling Cache::get");
         $loginResultData = Cache::get($cacheKey);
+        $this->debugLog("CACHE_GET_RESULT", [
+            'key' => $cacheKey, 
+            'data_found' => !is_null($loginResultData), 
+            'data' => $loginResultData
+        ]);
         \Log::info("CACHE_GET_RESULT", [
-            'key' => $cacheKey,
-            'data_found' => !is_null($loginResultData),
+            'key' => $cacheKey, 
+            'data_found' => !is_null($loginResultData), 
             'data' => $loginResultData
         ]);
 
@@ -826,24 +838,31 @@ class OAuthController extends Controller
             // 1. 用户还没完成 Telegram 登录流程
             // 2. hash 已过期或无效
             // 3. 登录已成功并且结果已被取走（因为取走后会删除）
+            $this->debugLog("Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
             \Log::info("Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
-            return response()->json(['status' => 'pending']);
+            return response()->json(['status' => 'pending']); 
         }
 
         // 找到登录结果
         // 验证用户是否存在且未被封禁
         $userId = $loginResultData['user_id'] ?? null;
         if (!$userId) {
-            // 数据不完整
-            \Log::warning("Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
-            Cache::forget($cacheKey); // 清除不完整的数据
-            return response()->json(['error' => 'Login result data is invalid'], 500);
+             // 数据不完整
+             $this->debugLog("checkTelegramLogin ERROR: Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
+             \Log::warning("Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
+             Cache::forget($cacheKey); // 清除不完整的数据
+             return response()->json(['error' => 'Login result data is invalid'], 500);
         }
-
+        
+        $this->debugLog("Looking up user", ['user_id' => $userId]);
         $user = User::find($userId);
         if (!$user || $user->banned) {
+            $this->debugLog("checkTelegramLogin ERROR: User not found or banned", [
+                'user_id' => $userId, 
+                'banned' => $user->banned ?? 'N/A'
+            ]);
             \Log::warning("User not found or banned when checking Telegram login result", [
-                'user_id' => $userId,
+                'user_id' => $userId, 
                 'banned' => $user->banned ?? 'N/A'
             ]);
             Cache::forget($cacheKey); // 清除无效的登录结果
@@ -858,14 +877,16 @@ class OAuthController extends Controller
             'auth_data' => $loginResultData['auth_data'],
             // 注意：不要返回 plain_password 给前端，这有安全风险
         ];
-
+        
         // 删除已使用的缓存条目，防止重复使用
-        Cache::forget($cacheKey);
+        $this->debugLog("Removing cache entry", ['cache_key' => $cacheKey]);
+        Cache::forget($cacheKey);  
         \Log::info("Telegram login result retrieved and cache cleared", [
-            'user_id' => $userId,
+            'user_id' => $userId, 
             'cache_key' => $cacheKey
         ]);
 
+        $this->debugLog("checkTelegramLogin END: Returning success", ['user_id' => $userId]);
         return response()->json([
             'status' => 'success',
             'data' => $responseData,
