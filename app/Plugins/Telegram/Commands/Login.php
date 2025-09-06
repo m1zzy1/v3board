@@ -65,7 +65,7 @@ class Login extends Telegram {
 
             if (isset($responseData['data']) && isset($responseData['data']['token'])) {
                 // 登录成功
-                $this->sendReply($message, "✅ 1登录成功！\n您已成功登录到网站。\n用户邮箱: {$user->email}", 'markdown');
+                $this->sendReply($message, "✅ 1登录成功！\n您已成功登录到网站。\n用户邮箱: `{$user->email}`", 'markdown');
             } else if (isset($responseData['error'])) {
                 // 登录失败
                 $this->sendReply($message, "❌ 登录失败: " . $responseData['error']);
