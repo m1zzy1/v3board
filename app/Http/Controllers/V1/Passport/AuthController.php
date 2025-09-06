@@ -315,74 +315,125 @@ class AuthController extends Controller
     
     /**
      * 用户更改邮箱
-     * 
+     *
      * @param AuthChangeEmail $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function changeEmail(AuthChangeEmail $request)
     {
-        $user = $request->user(); // 从 auth:api 中间件获取当前用户 (修正为方法调用)
+        // --- 新增：调试日志记录 ---
+        $logData = [
+            'timestamp' => now()->toISOString(),
+            'action' => 'changeEmail_start',
+            'request_data' => $request->only(['new_email', 'email_code']),
+        ];
+        \Log::debug("Passport Auth ChangeEmail Debug Start", $logData);
+        // --- 结束新增 ---
+
+        /** @var User $user */
+        $user = $request->user(); // 从 auth:api 中间件获取当前用户
+
+        // --- 新增：调试用户对象 ---
+        \Log::debug("Passport Auth ChangeEmail Debug User", [
+            'user_type' => gettype($user),
+            'user_is_null' => is_null($user),
+            'user_id' => $user ? $user->id : null,
+            'user_email' => $user ? $user->email : null,
+        ]);
+        // --- 结束新增 ---
+
+        if (!$user) {
+            \Log::warning("Passport Auth ChangeEmail: Authenticated user not found.");
+            abort(500, '用户未认证或认证已过期，请重新登录');
+        }
+
         $newEmail = $request->input('new_email');
         $emailCode = $request->input('email_code');
-        
+
         // 检查新邮箱是否与旧邮箱相同
         if ($user->email === $newEmail) {
+            \Log::info("Passport Auth ChangeEmail: New email is the same as current email.", [
+                'user_id' => $user->id,
+                'email' => $newEmail,
+            ]);
             abort(500, '新邮箱地址不能与当前邮箱地址相同');
         }
-        
+
         // 检查系统是否开启了邮箱验证
         $emailVerifyEnabled = (bool)config('v2board.email_verify', 0);
-        
+        \Log::debug("Passport Auth ChangeEmail: Email verification status", [
+            'enabled' => $emailVerifyEnabled,
+        ]);
+
         if ($emailVerifyEnabled) {
             // 如果开启了邮箱验证，必须提供验证码
             if (!$emailCode) {
+                \Log::info("Passport Auth ChangeEmail: Email code required but not provided.", [
+                    'user_id' => $user->id,
+                    'new_email' => $newEmail,
+                ]);
                 abort(500, '请输入邮箱验证码');
             }
-            
+
             // 验证验证码
             $cacheKey = CacheKey::get('EMAIL_VERIFY_CODE', $newEmail);
             $cachedCode = Cache::get($cacheKey);
-            
+            \Log::debug("Passport Auth ChangeEmail: Verifying email code", [
+                'user_id' => $user->id,
+                'new_email' => $newEmail,
+                'cache_key' => $cacheKey,
+                'cached_code' => $cachedCode,
+                'provided_code' => $emailCode,
+            ]);
+
             if ((string)$cachedCode !== (string)$emailCode) {
+                \Log::warning("Passport Auth ChangeEmail: Invalid or expired email code.", [
+                    'user_id' => $user->id,
+                    'new_email' => $newEmail,
+                    'cached_code' => $cachedCode,
+                    'provided_code' => $emailCode,
+                ]);
                 abort(500, '邮箱验证码不正确或已过期');
             }
-            
-            // --- 新增：可选的上下文校验 ---
-            // 检查验证码的用途，增强安全性（当前为宽松校验）
-            // 如果未来想收紧，可以要求 context 必须是 'change_email' 或其他特定值
-            $contextKey = CacheKey::get('EMAIL_VERIFY_CODE_CONTEXT', $newEmail);
-            $context = Cache::get($contextKey);
-            // 当前逻辑：只要验证码正确，并且是通过已知渠道发送的（context 存在），就允许使用
-            // 这保持了与原有流程的兼容性
-            if ($context === null) {
-                 // 如果没有上下文信息，可能是旧的验证码，为保持兼容性，暂时允许
-                 // 但在严格模式下，可以在这里拒绝
-                 \Log::warning("changeEmail: Verified code without context", ['email' => $newEmail]);
-            } else if ($context !== 'generic_send') {
-                 // 如果上下文存在但不是 'generic_send'，则可能是为其他目的生成的
-                 // 为保持兼容性，我们仍然允许，但记录警告
-                 \Log::notice("changeEmail: Verified code with non-standard context", ['email' => $newEmail, 'context' => $context]);
-            }
-            // --- 结束新增 ---
-            
+
             // 验证码正确，可以继续
-            
+            \Log::debug("Passport Auth ChangeEmail: Email code verified successfully.", [
+                'user_id' => $user->id,
+                'new_email' => $newEmail,
+            ]);
+
         } else {
-            // 如果未开启邮箱验证，则不需要验证码，直接继续
-            // $emailCode 可能为 null，但这没关系
+            \Log::debug("Passport Auth ChangeEmail: Email verification disabled, skipping code check.", [
+                'user_id' => $user->id,
+                'new_email' => $newEmail,
+            ]);
         }
-        
+
         // 更新用户邮箱
+        \Log::debug("Passport Auth ChangeEmail: Updating user email.", [
+            'user_id' => $user->id,
+            'old_email' => $user->email,
+            'new_email' => $newEmail,
+        ]);
+        
         $user->email = $newEmail;
         if (!$user->save()) {
+            \Log::error("Passport Auth ChangeEmail: Failed to update user email in database.", [
+                'user_id' => $user->id,
+                'new_email' => $newEmail,
+            ]);
             abort(500, '邮箱地址更新失败');
         }
-        
+
         // 如果开启了邮箱验证并且验证码已使用，则清除验证码缓存
         if ($emailVerifyEnabled && $cachedCode) {
-             Cache::forget($cacheKey);
+            Cache::forget($cacheKey);
+            \Log::debug("Passport Auth ChangeEmail: Used email verification code cleared from cache.", [
+                'user_id' => $user->id,
+                'cache_key' => $cacheKey,
+            ]);
         }
-        
+
         // 记录操作日志
         \Log::info("User changed email", [
             'user_id' => $user->id,
@@ -390,7 +441,7 @@ class AuthController extends Controller
             'new_email' => $newEmail,
             'email_verify_enabled' => $emailVerifyEnabled
         ]);
-        
+
         return response([
             'data' => true,
             'message' => '邮箱地址已成功更新'
