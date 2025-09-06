@@ -497,13 +497,17 @@ class OAuthController extends Controller
             }
             safe_error_log("Auth token generated successfully.", 'oauth_internal');
 
-            return [
+            $returnData = [
                 'success' => true,
                 'token' => $token,
                 'auth_data' => $authData,
                 'plain_password' => (!$userExists) ? $password : null, // 只有新用户才返回明文密码
                 'message' => null
             ];
+            
+            safe_error_log("oauthLoginInternal about to return success: " . json_encode($returnData), 'oauth_internal_debug');
+            
+            return $returnData;
 
         } catch (\Exception $e) {
             $errorMsg = "Internal OAuth Login Error: " . $e->getMessage();
@@ -591,10 +595,7 @@ class OAuthController extends Controller
             'email' => $email, 
             'tg_id' => $tgId, 
             'user_existed_before' => $userExistedBeforeOAuth
-        ]);
-        $result = $this->oauthLoginInternal($email, $name);
-
-        if ($result['success']) {
+        ]);\n        $result = $this->oauthLoginInternal($email, $name);\n        \n        \\Log::info(\"=== DEBUG: oauthLoginInternal returned to handleTelegramBotCallback ===\", ['result' => $result]);\n\n        if ($result['success']) {
             $token = $result['token'];
             $authData = $result['auth_data'];
             $plainPassword = $result['plain_password'];
