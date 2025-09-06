@@ -311,4 +311,88 @@ class AuthController extends Controller
             'data' => true
         ]);
     }
+    
+    /**
+     * 用户更改邮箱
+     * 
+     * @param AuthChangeEmail $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function changeEmail(AuthChangeEmail $request)
+    {
+        $user = $request->user; // 从 auth:api 中间件获取当前用户
+        $newEmail = $request->input('new_email');
+        $emailCode = $request->input('email_code');
+        
+        // 检查新邮箱是否与旧邮箱相同
+        if ($user->email === $newEmail) {
+            abort(500, '新邮箱地址不能与当前邮箱地址相同');
+        }
+        
+        // 检查系统是否开启了邮箱验证
+        $emailVerifyEnabled = (bool)config('v2board.email_verify', 0);
+        
+        if ($emailVerifyEnabled) {
+            // 如果开启了邮箱验证，必须提供验证码
+            if (!$emailCode) {
+                abort(500, '请输入邮箱验证码');
+            }
+            
+            // 验证验证码
+            $cacheKey = CacheKey::get('EMAIL_VERIFY_CODE', $newEmail);
+            $cachedCode = Cache::get($cacheKey);
+            
+            if ((string)$cachedCode !== (string)$emailCode) {
+                abort(500, '邮箱验证码不正确或已过期');
+            }
+            
+            // --- 新增：可选的上下文校验 ---
+            // 检查验证码的用途，增强安全性（当前为宽松校验）
+            // 如果未来想收紧，可以要求 context 必须是 'change_email' 或其他特定值
+            $contextKey = CacheKey::get('EMAIL_VERIFY_CODE_CONTEXT', $newEmail);
+            $context = Cache::get($contextKey);
+            // 当前逻辑：只要验证码正确，并且是通过已知渠道发送的（context 存在），就允许使用
+            // 这保持了与原有流程的兼容性
+            if ($context === null) {
+                 // 如果没有上下文信息，可能是旧的验证码，为保持兼容性，暂时允许
+                 // 但在严格模式下，可以在这里拒绝
+                 \Log::warning("changeEmail: Verified code without context", ['email' => $newEmail]);
+            } else if ($context !== 'generic_send') {
+                 // 如果上下文存在但不是 'generic_send'，则可能是为其他目的生成的
+                 // 为保持兼容性，我们仍然允许，但记录警告
+                 \Log::notice("changeEmail: Verified code with non-standard context", ['email' => $newEmail, 'context' => $context]);
+            }
+            // --- 结束新增 ---
+            
+            // 验证码正确，可以继续
+            
+        } else {
+            // 如果未开启邮箱验证，则不需要验证码，直接继续
+            // $emailCode 可能为 null，但这没关系
+        }
+        
+        // 更新用户邮箱
+        $user->email = $newEmail;
+        if (!$user->save()) {
+            abort(500, '邮箱地址更新失败');
+        }
+        
+        // 如果开启了邮箱验证并且验证码已使用，则清除验证码缓存
+        if ($emailVerifyEnabled && $cachedCode) {
+             Cache::forget($cacheKey);
+        }
+        
+        // 记录操作日志
+        \Log::info("User changed email", [
+            'user_id' => $user->id,
+            'old_email' => $user->getOriginal('email'), // 获取原始值
+            'new_email' => $newEmail,
+            'email_verify_enabled' => $emailVerifyEnabled
+        ]);
+        
+        return response([
+            'data' => true,
+            'message' => '邮箱地址已成功更新'
+        ]);
+    }
 }

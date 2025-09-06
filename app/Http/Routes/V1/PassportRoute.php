@@ -13,7 +13,7 @@ class PassportRoute
             // Auth
             $router->post('/auth/register', 'V1\\Passport\\AuthController@register');
             $router->post('/auth/login', 'V1\\Passport\\AuthController@login');
-            // $router->post('/telegram/check', 'V1\\Passport\\AuthController@telegramLoginCheck'); // 已移至 OAuthController
+            $router->post('/auth/changeEmail', 'V1\\Passport\\AuthController@changeEmail'); // 新增：更改用户邮箱
             $router->get ('/auth/token2Login', 'V1\\Passport\\AuthController@token2Login');
             $router->post('/auth/forget', 'V1\\Passport\\AuthController@forget');
             $router->post('/auth/getQuickLoginUrl', 'V1\\Passport\\AuthController@getQuickLoginUrl');

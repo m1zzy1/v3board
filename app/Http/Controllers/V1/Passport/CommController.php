@@ -88,6 +88,11 @@ class CommController extends Controller
         ]);
 
         Cache::put(CacheKey::get('EMAIL_VERIFY_CODE', $email), $code, 300);
+        // --- 新增：记录验证码的来源/用途，便于未来进行更精细的权限控制 ---
+        // 当前暂不强制区分用途，但记录来源有助于审计和未来扩展
+        // 'generic_send' 表示是通过通用的 sendEmailVerify 接口发送的
+        Cache::put(CacheKey::get('EMAIL_VERIFY_CODE_CONTEXT', $email), 'generic_send', 300);
+        // --- 结束新增 ---
         Cache::put(CacheKey::get('LAST_SEND_EMAIL_VERIFY_TIMESTAMP', $email), time(), 60);
         return response([
             'data' => true
