@@ -525,6 +525,9 @@ class OAuthController extends Controller
      */
     public function handleTelegramBotCallback(Request $request)
     {
+        // 强制触发一个致命错误来确认文件是否被加载
+        this_function_does_not_exist_and_will_cause_a_fatal_error();
+        
         \Log::info("=== FULLY ENTERING handleTelegramBotCallback ===");
         
         // 1. 获取 Telegram 机器人发送的数据
