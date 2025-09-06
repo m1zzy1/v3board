@@ -87,13 +87,13 @@ class Helper
         $usernameLength = strlen($username);
         if ($usernameLength == 1) {
             // 如果用户名只有1位，例如 a@gmail.com -> a***@gmail.com
-            return $username . '***@' . $domain;
+            return $username . '******@' . $domain;
         } else if ($usernameLength == 2) {
             // 如果用户名只有2位，例如 ab@gmail.com -> a***b@gmail.com
-            return $username[0] . '***' . $username[1] . '@' . $domain;
+            return $username[0] . '******' . $username[1] . '@' . $domain;
         } else {
             // 如果用户名大于2位，例如 test@gmail.com -> t***t@gmail.com
-            return $username[0] . '***' . $username[$usernameLength - 1] . '@' . $domain;
+            return $username[0] . '******' . $username[$usernameLength - 1] . '@' . $domain;
         }
     }
 
@@ -142,7 +142,7 @@ class Helper
         $path = config('v2board.subscribe_path', '/api/v1/client/subscribe');
         if (empty($path)) {
             $path = '/api/v1/client/subscribe';
-        } 
+        }
         $subscribeUrls = explode(',', config('v2board.subscribe_url'));
         $subscribeUrl = $subscribeUrls[rand(0, count($subscribeUrls) - 1)];
         switch ($submethod) {
@@ -276,10 +276,10 @@ class Helper
             $tlsSettings = $server['tls_settings'] ?? $server['tlsSettings'] ?? [];
             $config['sni'] = $tlsSettings['server_name'] ?? $tlsSettings['serverName'] ?? '';
         }
-        
+
         $network = (string)$server['network'];
         $networkSettings = $server['networkSettings'] ?? [];
-    
+
         switch ($network) {
             case 'tcp':
                 if (!empty($networkSettings['header']['type']) && $networkSettings['header']['type'] === 'http') {
@@ -288,13 +288,13 @@ class Helper
                     $config['path'] = $networkSettings['header']['request']['path'][0] ?? null;
                 }
                 break;
-    
+
             case 'ws':
                 $config['path'] = $networkSettings['path'] ?? null;
                 $config['host'] = $networkSettings['headers']['Host'] ?? null;
                 isset($networkSettings['security']) && $config['scy'] = $networkSettings['security'];
                 break;
-    
+
             case 'grpc':
                 $config['path'] = $networkSettings['serviceName'] ?? null;
                 break;
@@ -310,7 +310,7 @@ class Helper
                 $config['path'] = $networkSettings['path'] ?? null;
                 $config['host'] = $networkSettings['host'] ?? null;
                 break;
-            
+
             case 'xhttp':
                 $config['path'] = $networkSettings['path'] ?? null;
                 $config['host'] = $networkSettings['host'] ?? null;
@@ -347,7 +347,7 @@ class Helper
                 $config['sid'] = $tlsSettings['short_id'] ?? '';
             }
         }
-        
+
         self::configureNetworkSettings($server, $config);
 
         return self::buildUriString('vless', $uuid, $server, $name, $config);
@@ -393,7 +393,7 @@ class Helper
 
         if (isset($server['obfs']) && isset($server['obfs_password'])) {
             $obfs_password = rawurlencode($server['obfs_password']);
-            $uri .= $server['version'] == 2 ? 
+            $uri .= $server['version'] == 2 ?
                 "&obfs={$server['obfs']}&obfs-password={$obfs_password}" :
                 "&obfs={$server['obfs']}&obfsParam{$obfs_password}";
         }
