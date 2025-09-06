@@ -598,24 +598,26 @@ class OAuthController extends Controller
             'tg_id' => $tgId,
             'user_existed_before' => $userExistedBeforeOAuth
         ]);
-        $result = $this->oauthLoginInternal($email, $name);
+        
+        // 使用 try...catch 捕获 oauthLoginInternal 中可能抛出的异常
+        try {
+            $result = $this->oauthLoginInternal($email, $name);
+        } catch (\Exception $e) {
+            error_log("[" . date('Y-m-d H:i:s') . "] Exception in oauthLoginInternal: " . $e->getMessage() . PHP_EOL . $e->getTraceAsString() . PHP_EOL, 3, storage_path('logs/debug.log'));
+            flush();
+            \Log::error("Exception in oauthLoginInternal", ['message' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['error' => 'Internal error during login'], 500);
+        }
+        
         // 调试日志：确认 handleTelegramBotCallback 接收到了 oauthLoginInternal 的返回值
+        error_log("[" . date('Y-m-d H:i:s') . "] oauthLoginInternal returned to handleTelegramBotCallback" . PHP_EOL, 3, storage_path('logs/debug.log'));
+        flush();
+        
         \Log::info("oauthLoginInternal returned to handleTelegramBotCallback", [
             'result' => $result,
             'type' => gettype($result),
             'keys' => is_array($result) ? array_keys($result) : 'N/A'
         ]);
-        
-        // 检查 $result 是否为数组且包含 'success' 键
-        if (!is_array($result)) {
-            \Log::error("oauthLoginInternal did not return an array", ['result' => $result, 'type' => gettype($result)]);
-            return response()->json(['error' => 'Internal error: Invalid return type from oauthLoginInternal'], 500);
-        }
-        
-        if (!array_key_exists('success', $result)) {
-            \Log::error("oauthLoginInternal return array missing 'success' key", ['result' => $result]);
-            return response()->json(['error' => 'Internal error: Missing success key from oauthLoginInternal'], 500);
-        }
 
         if ($result['success']) {
             \Log::info("Entered if (\$result['success']) block", ['success_value' => $result['success']]);
