@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Passport\AuthForget;
 use App\Http\Requests\Passport\AuthLogin;
 use App\Http\Requests\Passport\AuthRegister;
+use App\Http\Requests\Passport\AuthChangeEmail; // 新增：引入 AuthChangeEmail Request 类
 use App\Jobs\SendEmailJob;
 use App\Models\InviteCode;
 use App\Models\Plan;
