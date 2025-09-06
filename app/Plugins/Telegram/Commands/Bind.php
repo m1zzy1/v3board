@@ -69,6 +69,16 @@ class Bind extends Telegram {
         if ($user->telegram_id) {
             abort(500, '该账号已经绑定了Telegram账号');
         }
+
+        // --- 新增：校验当前 Telegram ID 是否已被其他账号绑定 ---
+        $tgIdToBind = $message->chat_id;
+        $existingUserWithSameTgId = User::where('telegram_id', $tgIdToBind)->first();
+        if ($existingUserWithSameTgId && $existingUserWithSameTgId->id !== $user->id) {
+            // 找到了一个不同的用户，他已经绑定了这个 Telegram ID
+            abort(500, '该 Telegram 账号已被其他账户绑定，无法重复绑定。');
+        }
+        // --- 结束新增 ---
+
         $user->telegram_id = $message->chat_id;
         if (!$user->save()) {
             abort(500, '设置失败');
