@@ -699,22 +699,30 @@ class OAuthController extends Controller
             // 准备存储的数据
             $this->debugLog("SUCCESS BRANCH: Preparing login result data");
             
-            // 确定用于存储的用户对象
-            // 1. 如果是新创建的用户 ($newlyCreatedUser)，使用它
-            // 2. 否则，使用之前查找的用户 ($user)
-            $userToStore = null;
-            if (!$userExistedBeforeOAuth && isset($newlyCreatedUser) && $newlyCreatedUser) {
-                $userToStore = $newlyCreatedUser;
-                $this->debugLog("SUCCESS BRANCH: Using newly created user for storage", ['user_id' => $userToStore->id]);
-            } else if ($user) {
-                $userToStore = $user;
-                $this->debugLog("SUCCESS BRANCH: Using existing user for storage", ['user_id' => $userToStore->id]);
+            // 从 auth_data 中提取 user_id
+            $user_id_from_token = null;
+            $jwt_token = $authData['auth_data'] ?? '';
+            if ($jwt_token) {
+                // JWT token 由三部分组成: header.payload.signature
+                $parts = explode('.', $jwt_token);
+                if (count($parts) >= 2) {
+                    $payload_json = base64_decode($parts[1]);
+                    $payload = json_decode($payload_json, true);
+                    if ($payload && isset($payload['id'])) {
+                        $user_id_from_token = $payload['id'];
+                        $this->debugLog("SUCCESS BRANCH: Extracted user_id from JWT token", ['user_id' => $user_id_from_token]);
+                    } else {
+                        $this->debugLog("SUCCESS BRANCH: WARNING - Failed to decode JWT payload or 'id' not found", ['payload' => $payload ?? 'null']);
+                    }
+                } else {
+                    $this->debugLog("SUCCESS BRANCH: WARNING - JWT token format is invalid", ['token_parts' => count($parts)]);
+                }
             } else {
-                $this->debugLog("SUCCESS BRANCH: WARNING - No user object available for storage");
+                $this->debugLog("SUCCESS BRANCH: WARNING - JWT token is empty");
             }
             
             $loginResultData = [
-                'user_id' => $userToStore ? $userToStore->id : null,
+                'user_id' => $user_id_from_token,
                 'token' => $token,
                 'is_admin' => $authData['is_admin'] ?? 0,
                 'auth_data' => $authData['auth_data'] ?? '',
