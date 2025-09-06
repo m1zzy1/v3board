@@ -527,6 +527,10 @@ class OAuthController extends Controller
      */
     public function handleTelegramBotCallback(Request $request)
     {
+        // 强制写入日志并刷新，确保即使程序崩溃也能记录
+        error_log("[" . date('Y-m-d H:i:s') . "] === FULLY ENTERING handleTelegramBotCallback (via error_log) ===" . PHP_EOL, 3, storage_path('logs/debug.log'));
+        flush();
+        
         \Log::info("=== FULLY ENTERING handleTelegramBotCallback ===");
 
         // 1. 获取 Telegram 机器人发送的数据
