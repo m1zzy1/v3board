@@ -688,4 +688,64 @@ class OAuthController extends Controller
         return true;
     }
 
+    /**
+     * 前端轮询接口，查询 Telegram 登录状态 (为统一 OAuth 流程，放在此控制器)
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function checkTelegramLogin(Request $request)
+    {
+        $code = $request->input('code'); // 这里的 code 就是前端获取到的 hash 值
+        if (!$code) {
+            return response()->json(['error' => 'code is required'], 400);
+        }
+
+        // 使用 hash 构造缓存键来查找登录结果
+        $cacheKey = CacheKey::get('TELEGRAM_LOGIN_RESULT', $code);
+        $loginResultData = Cache::get($cacheKey);
+
+        if (!$loginResultData) {
+            // 如果缓存中没有找到，说明：
+            // 1. 用户还没完成 Telegram 登录流程
+            // 2. hash 已过期或无效
+            // 3. 登录已成功并且结果已被取走（因为取走后会删除）
+            return response()->json(['status' => 'pending']); 
+        }
+
+        // 找到登录结果
+        // 验证用户是否存在且未被封禁
+        $userId = $loginResultData['user_id'] ?? null;
+        if (!$userId) {
+             // 数据不完整
+             Log::warning("Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
+             Cache::forget($cacheKey); // 清除不完整的数据
+             return response()->json(['error' => 'Login result data is invalid'], 500);
+        }
+        
+        $user = User::find($userId);
+        if (!$user || $user->banned) {
+            Log::warning("User not found or banned when checking Telegram login result", ['user_id' => $userId, 'banned' => $user->banned ?? 'N/A']);
+            Cache::forget($cacheKey); // 清除无效的登录结果
+            return response()->json(['error' => 'User not found or banned'], 403);
+        }
+
+        // 登录结果有效，返回给前端
+        // 注意：返回的数据结构应与 passport/auth/login 接口保持一致或兼容
+        $responseData = [
+            'token' => $loginResultData['token'],
+            'is_admin' => $loginResultData['is_admin'],
+            'auth_data' => $loginResultData['auth_data'],
+            // 注意：不要返回 plain_password 给前端，这有安全风险
+        ];
+        
+        // 删除已使用的缓存条目，防止重复使用
+        Cache::forget($cacheKey);  
+        Log::info("Telegram login result retrieved and cache cleared", ['user_id' => $userId, 'cache_key' => $cacheKey]);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $responseData,
+        ]);
+    }
+
 }
