@@ -42,6 +42,7 @@ class Login extends Telegram {
 
     private function handleLogin($message, $hash, $user) {
         \Log::info("=== Login@handleLogin called ===");
+        \Log::info("handleLogin parameters", ['hash' => $hash, 'user_id' => $user->id ?? 'N/A']);
         // 构造请求数据
         $requestData = [
             'id' => $message->chat_id,
@@ -84,6 +85,7 @@ class Login extends Telegram {
 
     private function handleRegistration($message, $hash, $tgId) {
         \Log::info("=== Login@handleRegistration called ===");
+        \Log::info("handleRegistration parameters", ['hash' => $hash, 'tg_id' => $tgId]);
         // 构造请求数据
         $requestData = [
             'id' => $tgId,

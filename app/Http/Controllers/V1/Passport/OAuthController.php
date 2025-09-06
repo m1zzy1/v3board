@@ -525,9 +525,6 @@ class OAuthController extends Controller
      */
     public function handleTelegramBotCallback(Request $request)
     {
-        // 强制触发一个致命错误来确认文件是否被加载
-        this_function_does_not_exist_and_will_cause_a_fatal_error();
-        
         \Log::info("=== FULLY ENTERING handleTelegramBotCallback ===");
         
         // 1. 获取 Telegram 机器人发送的数据
@@ -697,7 +694,12 @@ class OAuthController extends Controller
             return response()->json($responseData);
         } else {
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/register.';
-            Log::error("Telegram login/register failed in oauthLoginInternal.", ['error' => $errorMessage, 'tg_id' => $tgId, 'email' => $email]);
+            Log::error("Telegram login/register failed in oauthLoginInternal.", [
+                'error' => $errorMessage, 
+                'tg_id' => $tgId, 
+                'email' => $email,
+                'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5) // 添加调用栈信息
+            ]);
             return response()->json(['error' => $errorMessage], 500);
         }
     }
