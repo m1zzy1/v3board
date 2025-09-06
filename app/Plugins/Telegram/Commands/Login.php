@@ -65,7 +65,7 @@ class Login extends Telegram {
 
             if (isset($responseData['data']) && isset($responseData['data']['token'])) {
                 // 登录成功
-                $this->sendReply($message, "✅ 1登录成功！\n您已成功登录到网站。\n用户邮箱: `{$user->email}`", 'markdown');
+                $this->sendReply($message, "✅ 登录成功！\n\n您已成功登录到网站。\n用户邮箱: `{$user->email}`", 'markdown');
             } else if (isset($responseData['error'])) {
                 // 登录失败
                 $this->sendReply($message, "❌ 登录失败: " . $responseData['error']);
@@ -115,11 +115,11 @@ class Login extends Telegram {
 
                     if ($plainPassword) {
                         // 使用 Markdown 格式发送账户信息给用户
-                        $accountInfo = "✅ 2**注册成功！**\n欢迎使用我们的服务！\n您的账户信息：\n📧 **邮箱**: `{$user->email}`\n🔑 **密码**: `{$plainPassword}`\n请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
+                        $accountInfo = "✅ **注册成功！**\n\n欢迎使用我们的服务！\n您的账户信息：\n📧 **邮箱**: `{$user->email}`\n🔑 **密码**: `{$plainPassword}`\n\n您可以继续在网页操作，请及时更换邮箱为您的常用邮箱\n请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
                         $this->sendReply($message, $accountInfo, 'markdown');
                     } else {
                         // 登录成功，没有明文密码说明是已存在的用户
-                        $this->sendReply($message, "✅ 3登录成功！\n您已成功登录到网站。\n用户邮箱: {$user->email}", 'markdown');
+                        $this->sendReply($message, "✅ 3登录成功！\n\n您已成功登录到网站。\n用户邮箱: {$user->email}", 'markdown');
                     }
                 } else {
                     // 如果通过 Telegram ID 找不到用户，尝试通过邮箱查找
@@ -134,15 +134,15 @@ class Login extends Telegram {
 
                         if ($plainPassword) {
                             // 使用 Markdown 格式发送账户信息给用户
-                            $accountInfo = "✅ 4**注册成功！**\n欢迎使用我们的服务！\n您的账户信息：\n📧 **邮箱**: `{$user->email}`\n🔑 **密码**: `{$plainPassword}`\n请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
+                            $accountInfo = "✅ **注册成功！**\n\n欢迎使用我们的服务！\n您的账户信息：\n📧 **邮箱**: `{$user->email}`\n🔑 **密码**: `{$plainPassword}`\n\n您可以继续在网页操作，请及时更换邮箱为您的常用邮箱\n请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
 
                             $this->sendReply($message, $accountInfo, 'markdown');
                         } else {
                             // 登录成功，没有明文密码说明是已存在的用户
-                            $this->sendReply($message, "✅ 5登录成功！\n您已成功登录到网站。\n用户邮箱: {$user->email}", 'markdown');
+                            $this->sendReply($message, "✅ 登录成功！\n\n您已成功登录到网站。\n用户邮箱: {$user->email}", 'markdown');
                         }
                     } else {
-                        $this->sendReply($message, "✅ 6操作成功！\n您已成功登录到网站。");
+                        $this->sendReply($message, "✅ 操作成功！\n您已成功登录到网站。");
                     }
                 }
             } else if (isset($responseData['error'])) {
