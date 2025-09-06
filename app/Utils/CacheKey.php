@@ -36,7 +36,8 @@ class CacheKey
         'PASSWORD_ERROR_LIMIT' => '密码错误次数限制',
         'USER_SESSIONS' => '用户session',
         'FORGET_REQUEST_LIMIT' => '找回密码次数限制',
-        'TELEGRAM_LOGIN_HASH' => 'Telegram登录哈希值'
+        'TELEGRAM_LOGIN_HASH' => 'Telegram登录哈希值',
+        'TELEGRAM_LOGIN_RESULT' => 'Telegram登录结果缓存' // 用于存储前端轮询的登录结果
     ];
 
     public static function get(string $key, $uniqueValue)
