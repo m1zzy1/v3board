@@ -321,7 +321,7 @@ class AuthController extends Controller
      */
     public function changeEmail(AuthChangeEmail $request)
     {
-        $user = $request->user; // 从 auth:api 中间件获取当前用户
+        $user = $request->user(); // 从 auth:api 中间件获取当前用户 (修正为方法调用)
         $newEmail = $request->input('new_email');
         $emailCode = $request->input('email_code');
         
