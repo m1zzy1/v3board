@@ -218,12 +218,14 @@ class Login extends Telegram {
     }
 
     /**
-     * MarkdownV2 全字符转义（用于非代码段）
-     * 需要转义的字符： _ * [ ] ( ) ~ ` > # + - = | { } . !
+     * MarkdownV2 全字符转义（非代码段）
+     * 保留 * 和 _ 以支持粗体/斜体
      */
     private function escapeAllMarkdownV2(string $text): string
     {
-        $special = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
+        // 根据官方文档： _ * [ ] ( ) ~ ` > # + - = | { } . !
+        // 我们这里保留 _ 和 * 不转义
+        $special = ['[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
         $repl    = array_map(function ($c) {
             return '\\' . $c;
         }, $special);
