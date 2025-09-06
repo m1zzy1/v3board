@@ -547,40 +547,76 @@ class OAuthController extends Controller
         
         // 4. 检查用户是否已绑定 Telegram ID
         $user = User::where('telegram_id', $tgId)->first();
+        $userExistedBeforeOAuth = false; // 标记用户在调用 oauthLoginInternal 之前是否已存在于数据库
         
-        if (!$user) {
-            // 用户未绑定 Telegram ID，检查是否通过邮箱注册过
+        if ($user) {
+            $userExistedBeforeOAuth = true;
+        } else {
+            // 用户未通过 telegram_id 绑定，检查是否通过邮箱注册过 (针对 tg_xxx@xxx 邮箱的旧用户)
             $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com';
             $email = "tg_{$tgId}@{$appUrlHost}";
             $user = User::where('email', $email)->first();
             
-            if (!$user) {
-                // 用户不存在，让 oauthLoginInternal 方法处理创建新用户的逻辑
-                // 不在这里重复创建用户
-            } else {
-                // 绑定 Telegram ID 到现有用户账户
+            if ($user) {
+                // 找到通过邮箱存在的旧用户，绑定 Telegram ID
                 $user->telegram_id = $tgId;
                 if (!$user->save()) {
                     return response()->json(['error' => 'Failed to bind Telegram account'], 500);
                 }
+                $userExistedBeforeOAuth = true; // 该用户在 oauthLoginInternal 调用前已存在
             }
+            // 如果 $user 仍为 null，则表示这是一个完全的新用户，将在 oauthLoginInternal 中创建
         }
         
-        // 5. 执行登录逻辑
-        // 如果用户不存在，oauthLoginInternal 会处理创建新用户的逻辑
+        // 5. 执行登录或注册逻辑
+        // 构造邮箱：如果用户已存在，则使用其邮箱；否则构造一个临时邮箱用于新用户创建
         $email = $user ? $user->email : "tg_{$tgId}@" . (parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com');
         $firstName = $request->input('first_name', 'TG User');
         $name = $firstName;
         
-        Log::info("Calling internal OAuth login/register logic for Telegram", ['email' => $email]);
+        Log::info("Calling internal OAuth login/register logic for Telegram", ['email' => $email, 'tg_id' => $tgId, 'user_existed_before' => $userExistedBeforeOAuth]);
         $result = $this->oauthLoginInternal($email, $name);
         
         if ($result['success']) {
             $token = $result['token'];
             $authData = $result['auth_data'];
             $plainPassword = $result['plain_password'];
-            Log::info("Telegram login successful", ['token' => $token]);
-            
+            Log::info("Telegram login/register process successful via oauthLoginInternal", ['token_provided' => !empty($token), 'tg_id' => $tgId]);
+
+            // --- 关键修复逻辑 ---
+            // 如果用户在 oauthLoginInternal 调用前并不存在，那么 oauthLoginInternal 应该创建了新用户。
+            // 我们需要确保新用户的 telegram_id 被正确设置。
+            if (!$userExistedBeforeOAuth) {
+                // 重新通过 email 查找新创建的用户，因为 oauthLoginInternal 中创建并保存了它
+                // 使用 email 查找是可靠的，因为它是由 tgId 构造的且在 oauthLoginInternal 中用于创建用户
+                $newlyCreatedUser = User::where('email', $email)->first();
+                
+                if ($newlyCreatedUser && !$newlyCreatedUser->telegram_id) {
+                    // 新用户已创建，但 telegram_id 未设置，进行绑定
+                    Log::info("Binding telegram_id to newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
+                    $newlyCreatedUser->telegram_id = $tgId;
+                    if (!$newlyCreatedUser->save()) {
+                        // 记录错误，但不中断主流程（用户已成功登录/注册）
+                        Log::error("Failed to save telegram_id for newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
+                        // 可以考虑在这里返回一个特定的警告信息，或者在前端提示用户手动绑定
+                        // 但为了保持现有行为，我们仅记录日志
+                    } else {
+                        Log::info("Successfully saved telegram_id for newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId]);
+                    }
+                } else if ($newlyCreatedUser && $newlyCreatedUser->telegram_id) {
+                     // 理论上不应该发生，除非 oauthLoginInternal 内部或其他地方意外设置了
+                     // 但为了健壮性检查一下
+                     Log::debug("Newly created user already had telegram_id set (this is unusual but not necessarily an error)", ['user_id' => $newlyCreatedUser->id, 'existing_tg_id' => $newlyCreatedUser->telegram_id, 'tg_id_from_request' => $tgId]);
+                } else {
+                     // $newlyCreatedUser 为空，这表示 oauthLoginInternal 应该创建了用户但查找失败，属于严重错误
+                     Log::critical("Could not find newly created user to bind telegram_id, although oauthLoginInternal reported success", ['email' => $email, 'tg_id' => $tgId]);
+                     // 这种情况下，虽然返回了 token，但用户数据可能不一致。
+                     // 考虑是否需要返回一个错误，但这可能破坏现有用户体验。
+                     // 当前选择记录严重错误日志。
+                }
+            }
+            // --- 结束关键修复逻辑 ---
+
             // 返回登录数据
             $responseData = [
                 'data' => [
@@ -590,15 +626,15 @@ class OAuthController extends Controller
                 ]
             ];
             
-            // 如果有明文密码，也添加到响应中
+            // 如果有明文密码（新注册用户），也添加到响应中
             if ($plainPassword) {
                 $responseData['data']['plain_password'] = $plainPassword;
             }
             
             return response()->json($responseData);
         } else {
-            $errorMessage = $result['message'] ?? 'Unknown error during Telegram login.';
-            Log::error("Telegram login failed internally.", ['error' => $errorMessage, 'tg_id' => $tgId]);
+            $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/register.';
+            Log::error("Telegram login/register failed in oauthLoginInternal.", ['error' => $errorMessage, 'tg_id' => $tgId, 'email' => $email]);
             return response()->json(['error' => $errorMessage], 500);
         }
     }
