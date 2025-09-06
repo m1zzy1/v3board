@@ -81,14 +81,14 @@ class OAuthController extends Controller
 
             // --- 构造 Google 授权 URL ---
             $authUrl = 'https://accounts.google.com/o/oauth2/auth?' . http_build_query([
-                'client_id' => $googleClientId,
-                'redirect_uri' => $googleCallbackUri, // *** 使用固定的后端回调 URI ***
-                'scope' => 'email profile', // 请求访问邮箱和基本资料
-                'response_type' => 'code', // 请求 Authorization Code
-                'access_type' => 'offline', // 请求 refresh token (可选)
-                'prompt' => 'consent', // 强制显示同意界面 (可选)
-                'state' => $state // *** 传递编码后的 redirect URL ***
-            ]);
+                    'client_id' => $googleClientId,
+                    'redirect_uri' => $googleCallbackUri, // *** 使用固定的后端回调 URI ***
+                    'scope' => 'email profile', // 请求访问邮箱和基本资料
+                    'response_type' => 'code', // 请求 Authorization Code
+                    'access_type' => 'offline', // 请求 refresh token (可选)
+                    'prompt' => 'consent', // 强制显示同意界面 (可选)
+                    'state' => $state // *** 传递编码后的 redirect URL ***
+                ]);
 
             // --- 返回包含 Google 授权 URL 的 JSON 响应 ---
             return response()->json([
@@ -96,13 +96,13 @@ class OAuthController extends Controller
                     'url' => $authUrl
                 ]
             ]);
-            
+
         } else if ($type === 'telegram') {
-             return response()->json([
+            return response()->json([
                 'data' => [
                     'url' => url('/api/v1/passport/oauth/telegram') // Telegram 直接跳转到后端处理地址
                 ]
-             ]);
+            ]);
         } else {
             return response()->json(['error' => 'Unsupported OAuth type'], 400);
         }
@@ -134,11 +134,11 @@ class OAuthController extends Controller
 
             // 如果 state 里没有，或者解码失败，可以 fallback 到一个默认 URL（不太理想）
             if (empty($frontendCallbackUrl)) {
-                 $errorMsg = "No frontend callback URL found in 'state' parameter.";
-                 Log::warning($errorMsg);
-                 $errorMessage = $errorMsg;
-                 // 没有前端 URL，无法跳转，直接抛出异常到 catch 块
-                 throw new \Exception($errorMsg);
+                $errorMsg = "No frontend callback URL found in 'state' parameter.";
+                Log::warning($errorMsg);
+                $errorMessage = $errorMsg;
+                // 没有前端 URL，无法跳转，直接抛出异常到 catch 块
+                throw new \Exception($errorMsg);
             }
 
             // --- 3. 从配置读取 Google OAuth 配置 ---
@@ -257,11 +257,11 @@ class OAuthController extends Controller
             Log::error("Google OAuth Callback Error (caught): " . $e->getMessage(), ['exception' => $e]);
             // token 保持为 null
             // errorMessage 已经在上面设置了
-            
+
         } finally {
             // --- 9. 唯一出口：执行最终跳转 ---
             // 无论 try 成功还是 catch 捕获到异常，都必须走到这里
-            
+
             Log::info("Preparing final redirect", [
                 'frontend_url' => $frontendCallbackUrl,
                 'token_provided' => !empty($token),
@@ -272,7 +272,7 @@ class OAuthController extends Controller
             if (!empty($frontendCallbackUrl)) {
                 // 目标格式: http://localhost:8080/verify.html?token=XYZ
                 // 或者:     http://localhost:8080/verify.html?error=...
-                
+
                 $parsedUrl = parse_url($frontendCallbackUrl);
                 if ($parsedUrl !== false) {
                     $scheme = $parsedUrl['scheme'] ?? 'http';
@@ -280,12 +280,12 @@ class OAuthController extends Controller
                     $port = isset($parsedUrl['port']) ? ':' . $parsedUrl['port'] : '';
                     $path = $parsedUrl['path'] ?? '/';
                     $query = $parsedUrl['query'] ?? ''; // 保留原始查询参数
-                    
+
                     $baseUrl = $scheme . '://' . $host . $port . $path;
                     if ($query) {
-                         $baseUrl .= '?' . $query; // 保留原始查询
+                        $baseUrl .= '?' . $query; // 保留原始查询
                     }
-                    
+
                     // 构造我们自己的查询参数 (token 或 error)
                     $ourQueryParams = [];
                     if (!empty($token)) {
@@ -294,25 +294,25 @@ class OAuthController extends Controller
                         $ourQueryParams['is_admin'] = $authData['is_admin'] ?? 0;
                         $ourQueryParams['auth_data'] = $authData['auth_data'] ?? '';
                     } else if (!empty($errorMessage)) {
-                         // 确保错误信息被正确编码
+                        // 确保错误信息被正确编码
                         $ourQueryParams['error'] = urlencode($errorMessage);
                     }
                     $ourQueryString = !empty($ourQueryParams) ? '?' . http_build_query($ourQueryParams) : '';
-                    
+
                     // 拼接最终 URL: base_url + our_query_string
                     $finalUrl = $baseUrl . $ourQueryString;
-                    
+
                     Log::info("Final redirect URL assembled", ['url' => $finalUrl]);
-                    
+
                     // --- 11. 执行跳转 ---
                     return redirect()->to($finalUrl);
-                    
+
                 } else {
                     Log::error("Failed to parse frontend callback URL", ['url' => $frontendCallbackUrl]);
                     // 如果解析失败，fallback 到后端错误页
                     return redirect()->to(url('/#/login?error=' . urlencode('Failed to process redirect URL.')));
                 }
-                
+
             } else {
                 // 如果没有前端 URL (理论上不应发生，因为前面已经检查并抛出异常)
                 Log::critical("Critical: frontendCallbackUrl is empty in finally block. This should not happen.");
@@ -330,11 +330,11 @@ class OAuthController extends Controller
     {
         // 1. 生成21位唯一的 hash 值
         $hash = Helper::generateTelegramLoginCode(21);
-        
+
         // 2. 将 hash 值存储到缓存中，设置过期时间（例如5分钟）
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_HASH', $hash);
         Cache::put($cacheKey, $hash, 300); // 5分钟过期
-        
+
         // 3. 返回 hash 值给前端
         return response([
             'data' => [
@@ -394,10 +394,10 @@ class OAuthController extends Controller
                             safe_error_log("Invite code status updated to used.", 'oauth_internal');
                         }
                     } else {
-                         safe_error_log("Invite code '{$inviteCode}' not found or already used.", 'oauth_internal');
-                         // 注意：如果邀请码无效且强制邀请未开启，我们仍会注册用户。
-                         // 这与 AuthController@register 的行为一致（它在 invite_force=1 时才检查）。
-                         // 如果你想在邀请码无效时拒绝注册，可以在这里 abort(500, ...)
+                        safe_error_log("Invite code '{$inviteCode}' not found or already used.", 'oauth_internal');
+                        // 注意：如果邀请码无效且强制邀请未开启，我们仍会注册用户。
+                        // 这与 AuthController@register 的行为一致（它在 invite_force=1 时才检查）。
+                        // 如果你想在邀请码无效时拒绝注册，可以在这里 abort(500, ...)
                     }
                 }
                 // --- 2.5 处理试用计划逻辑 (如果配置了试用计划) ---
@@ -414,10 +414,10 @@ class OAuthController extends Controller
                         $user->expired_at = time() + (config('v2board.try_out_hour', 1) * 3600);
                         $user->speed_limit = $plan->speed_limit;
                     } else {
-                         safe_error_log("Try-out plan ID {$tryOutPlanId} not found in database!", 'oauth_internal');
+                        safe_error_log("Try-out plan ID {$tryOutPlanId} not found in database!", 'oauth_internal');
                     }
                 }
-                
+
                 // --- 2.6 保存用户 ---
                 safe_error_log("Attempting to save new user...", 'oauth_internal');
                 if (!$user->save()) {
@@ -455,7 +455,7 @@ class OAuthController extends Controller
                 } else {
                     safe_error_log("Skipping welcome email for Telegram user with constructed email.", 'oauth_internal');
                 }
-                
+
                 // --- 2.8 注册后处理 ---
                 $user->last_login_at = time();
                 $user->save();
@@ -481,13 +481,13 @@ class OAuthController extends Controller
             $authService = new AuthService($user);
             // 我们需要完整的 auth_data，所以直接生成
             // 注意：generateAuthData 需要一个 Request 对象，这里传递一个空的模拟请求
-            $authData = $authService->generateAuthData(new Request()); 
+            $authData = $authService->generateAuthData(new Request());
             $token = $authData['token'] ?? null;
 
             if (!$token) {
-                 $errorMsg = 'Failed to generate authentication token.';
-                 safe_error_log($errorMsg, 'oauth_internal');
-                 return [
+                $errorMsg = 'Failed to generate authentication token.';
+                safe_error_log($errorMsg, 'oauth_internal');
+                return [
                     'success' => false,
                     'token' => null,
                     'auth_data' => null,
@@ -496,18 +496,16 @@ class OAuthController extends Controller
                 ];
             }
             safe_error_log("Auth token generated successfully.", 'oauth_internal');
+            // 调试日志：确认 oauthLoginInternal 即将返回成功
+            safe_error_log("oauthLoginInternal about to return success", 'oauth_internal_debug');
 
-            $returnData = [
+            return [
                 'success' => true,
                 'token' => $token,
                 'auth_data' => $authData,
                 'plain_password' => (!$userExists) ? $password : null, // 只有新用户才返回明文密码
                 'message' => null
             ];
-            
-            safe_error_log("oauthLoginInternal about to return success: " . json_encode($returnData), 'oauth_internal_debug');
-            
-            return $returnData;
 
         } catch (\Exception $e) {
             $errorMsg = "Internal OAuth Login Error: " . $e->getMessage();
@@ -530,12 +528,12 @@ class OAuthController extends Controller
     public function handleTelegramBotCallback(Request $request)
     {
         \Log::info("=== FULLY ENTERING handleTelegramBotCallback ===");
-        
+
         // 1. 获取 Telegram 机器人发送的数据
         $tgId = $request->input('id');
         $hash = $request->input('hash'); // 这是用户发送给机器人的 hash
         $message = $request->input('message');
-        
+
         \Log::info("Raw request inputs", ['id' => $tgId, 'hash' => $hash, 'message' => $message]);
 
         if (!$tgId || !$hash) {
@@ -592,15 +590,20 @@ class OAuthController extends Controller
         $name = $firstName;
 
         \Log::info("Calling internal OAuth login/register logic for Telegram", [
-            'email' => $email, 
-            'tg_id' => $tgId, 
+            'email' => $email,
+            'tg_id' => $tgId,
             'user_existed_before' => $userExistedBeforeOAuth
-        ]);\n        $result = $this->oauthLoginInternal($email, $name);\n        \n        \\Log::info(\"=== DEBUG: oauthLoginInternal returned to handleTelegramBotCallback ===\", ['result' => $result]);\n\n        if ($result['success']) {
+        ]);
+        $result = $this->oauthLoginInternal($email, $name);
+        // 调试日志：确认 handleTelegramBotCallback 接收到了 oauthLoginInternal 的返回值
+        \Log::info("oauthLoginInternal returned to handleTelegramBotCallback", ['result' => $result]);
+
+        if ($result['success']) {
             $token = $result['token'];
             $authData = $result['auth_data'];
             $plainPassword = $result['plain_password'];
             \Log::info("Telegram login/register process successful via oauthLoginInternal", [
-                'token_provided' => !empty($token), 
+                'token_provided' => !empty($token),
                 'tg_id' => $tgId,
                 'user_id' => $result['auth_data']['user']['id'] ?? 'N/A'
             ]);
@@ -625,23 +628,23 @@ class OAuthController extends Controller
                 'auth_data' => $authData['auth_data'] ?? '',
                 'plain_password' => $plainPassword // 可选，对于前端可能不需要
             ];
-            
+
             \Log::info("Prepared login result data", ['data' => $loginResultData]);
 
             // 存储到缓存，过期时间可以与 hash 一致或稍长一些，例如 300 秒 (5分钟)
             // 使用 put 方法替换之前的 remember 方法，因为我们有确切的数据
             Cache::put($loginResultCacheKey, $loginResultData, 300);
             \Log::info("Stored Telegram login result in cache for frontend polling", [
-                'cache_key' => $loginResultCacheKey, 
+                'cache_key' => $loginResultCacheKey,
                 'user_id' => $loginResultData['user_id'],
                 'expires_in_seconds' => 300
             ]);
-            
+
             // 为了验证存储是否成功，立即尝试读取
             $verifyData = Cache::get($loginResultCacheKey);
             \Log::info("VERIFY_CACHE_AFTER_PUT", [
-                'key' => $loginResultCacheKey, 
-                'data_found' => !is_null($verifyData), 
+                'key' => $loginResultCacheKey,
+                'data_found' => !is_null($verifyData),
                 'data' => $verifyData
             ]);
             // --- 结束新增 ---
@@ -651,7 +654,7 @@ class OAuthController extends Controller
                 // 重新通过 email 查找新创建的用户，因为 oauthLoginInternal 中创建并保存了它
                 // 使用 email 查找是可靠的，因为它是由 tgId 构造的且在 oauthLoginInternal 中用于创建用户
                 $newlyCreatedUser = User::where('email', $email)->first();
-                
+
                 if ($newlyCreatedUser && !$newlyCreatedUser->telegram_id) {
                     // 新用户已创建，但 telegram_id 未设置，进行绑定
                     Log::info("Binding telegram_id to newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
@@ -665,15 +668,15 @@ class OAuthController extends Controller
                         Log::info("Successfully saved telegram_id for newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId]);
                     }
                 } else if ($newlyCreatedUser && $newlyCreatedUser->telegram_id) {
-                     // 理论上不应该发生，除非 oauthLoginInternal 内部或其他地方意外设置了
-                     // 但为了健壮性检查一下
-                     Log::debug("Newly created user already had telegram_id set (this is unusual but not necessarily an error)", ['user_id' => $newlyCreatedUser->id, 'existing_tg_id' => $newlyCreatedUser->telegram_id, 'tg_id_from_request' => $tgId]);
+                    // 理论上不应该发生，除非 oauthLoginInternal 内部或其他地方意外设置了
+                    // 但为了健壮性检查一下
+                    Log::debug("Newly created user already had telegram_id set (this is unusual but not necessarily an error)", ['user_id' => $newlyCreatedUser->id, 'existing_tg_id' => $newlyCreatedUser->telegram_id, 'tg_id_from_request' => $tgId]);
                 } else {
-                     // $newlyCreatedUser 为空，这表示 oauthLoginInternal 应该创建了用户但查找失败，属于严重错误
-                     Log::critical("Could not find newly created user to bind telegram_id, although oauthLoginInternal reported success", ['email' => $email, 'tg_id' => $tgId]);
-                     // 这种情况下，虽然返回了 token，但用户数据可能不一致。
-                     // 考虑是否需要返回一个错误，但这可能破坏现有用户体验。
-                     // 当前选择记录严重错误日志。
+                    // $newlyCreatedUser 为空，这表示 oauthLoginInternal 应该创建了用户但查找失败，属于严重错误
+                    Log::critical("Could not find newly created user to bind telegram_id, although oauthLoginInternal reported success", ['email' => $email, 'tg_id' => $tgId]);
+                    // 这种情况下，虽然返回了 token，但用户数据可能不一致。
+                    // 考虑是否需要返回一个错误，但这可能破坏现有用户体验。
+                    // 当前选择记录严重错误日志。
                 }
             }
             // --- 结束关键修复逻辑 ---
@@ -686,18 +689,18 @@ class OAuthController extends Controller
                     'auth_data' => $authData['auth_data'] ?? ''
                 ]
             ];
-            
+
             // 如果有明文密码（新注册用户），也添加到响应中
             if ($plainPassword) {
                 $responseData['data']['plain_password'] = $plainPassword;
             }
-            
+
             return response()->json($responseData);
         } else {
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/register.';
             Log::error("Telegram login/register failed in oauthLoginInternal.", [
-                'error' => $errorMessage, 
-                'tg_id' => $tgId, 
+                'error' => $errorMessage,
+                'tg_id' => $tgId,
                 'email' => $email,
                 'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5) // 添加调用栈信息
             ]);
@@ -715,8 +718,8 @@ class OAuthController extends Controller
         // --- 使用系统配置的 Telegram Bot Token ---
         $token = config('v2board.telegram_bot_token');
         if (!$token) {
-             Log::error("Telegram Bot Token not configured in v2board config (config/v2board.php or .env)");
-             return false;
+            Log::error("Telegram Bot Token not configured in v2board config (config/v2board.php or .env)");
+            return false;
         }
 
         if (!isset($data['hash'])) {
@@ -736,19 +739,19 @@ class OAuthController extends Controller
         $hash = hash_hmac('sha256', $data_check_string, $secret_key, false);
 
         if (strcmp($hash, $check_hash) !== 0) {
-             Log::warning("Telegram auth hash mismatch.", [
-                 'received_hash' => $check_hash, 
-                 'calculated_hash' => $hash, 
-                 'data' => $data,
-                 'data_check_string' => $data_check_string // For debugging
-             ]);
-             return false;
+            Log::warning("Telegram auth hash mismatch.", [
+                'received_hash' => $check_hash,
+                'calculated_hash' => $hash,
+                'data' => $data,
+                'data_check_string' => $data_check_string // For debugging
+            ]);
+            return false;
         }
 
         // 可选：检查 auth_date 是否过期 (例如 1 天内)
         if ((time() - ($data['auth_date'] ?? 0)) > 86400) {
-             Log::warning("Telegram auth data is too old.", ['auth_date' => $data['auth_date'] ?? null]);
-             return false;
+            Log::warning("Telegram auth data is too old.", ['auth_date' => $data['auth_date'] ?? null]);
+            return false;
         }
 
         return true;
@@ -762,10 +765,10 @@ class OAuthController extends Controller
     public function checkTelegramLogin(Request $request)
     {
         \Log::info("=== DEBUG checkTelegramLogin START ===");
-        
+
         $code = $request->input('code'); // 这里的 code 就是前端获取到的 hash 值
         \Log::info("EXACT_CODE_RECEIVED_FROM_FRONTEND", ['code' => $code]);
-        
+
         if (!$code) {
             \Log::warning("Telegram login check failed: code is required");
             return response()->json(['error' => 'code is required'], 400);
@@ -774,11 +777,11 @@ class OAuthController extends Controller
         // 使用 hash 构造缓存键来查找登录结果
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_RESULT', $code);
         \Log::info("EXACT_CACHE_KEY_FOR_CHECKING", ['cache_key' => $cacheKey]);
-        
+
         $loginResultData = Cache::get($cacheKey);
         \Log::info("CACHE_GET_RESULT", [
-            'key' => $cacheKey, 
-            'data_found' => !is_null($loginResultData), 
+            'key' => $cacheKey,
+            'data_found' => !is_null($loginResultData),
             'data' => $loginResultData
         ]);
 
@@ -788,23 +791,23 @@ class OAuthController extends Controller
             // 2. hash 已过期或无效
             // 3. 登录已成功并且结果已被取走（因为取走后会删除）
             \Log::info("Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
-            return response()->json(['status' => 'pending']); 
+            return response()->json(['status' => 'pending']);
         }
 
         // 找到登录结果
         // 验证用户是否存在且未被封禁
         $userId = $loginResultData['user_id'] ?? null;
         if (!$userId) {
-             // 数据不完整
-             \Log::warning("Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
-             Cache::forget($cacheKey); // 清除不完整的数据
-             return response()->json(['error' => 'Login result data is invalid'], 500);
+            // 数据不完整
+            \Log::warning("Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
+            Cache::forget($cacheKey); // 清除不完整的数据
+            return response()->json(['error' => 'Login result data is invalid'], 500);
         }
-        
+
         $user = User::find($userId);
         if (!$user || $user->banned) {
             \Log::warning("User not found or banned when checking Telegram login result", [
-                'user_id' => $userId, 
+                'user_id' => $userId,
                 'banned' => $user->banned ?? 'N/A'
             ]);
             Cache::forget($cacheKey); // 清除无效的登录结果
@@ -819,11 +822,11 @@ class OAuthController extends Controller
             'auth_data' => $loginResultData['auth_data'],
             // 注意：不要返回 plain_password 给前端，这有安全风险
         ];
-        
+
         // 删除已使用的缓存条目，防止重复使用
-        Cache::forget($cacheKey);  
+        Cache::forget($cacheKey);
         \Log::info("Telegram login result retrieved and cache cleared", [
-            'user_id' => $userId, 
+            'user_id' => $userId,
             'cache_key' => $cacheKey
         ]);
 
