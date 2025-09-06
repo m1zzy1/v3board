@@ -525,7 +525,7 @@ class OAuthController extends Controller
      */
     public function handleTelegramBotCallback(Request $request)
     {
-        \Log::info("=== DEBUG handleTelegramBotCallback START ===");
+        \Log::info("=== FULLY ENTERING handleTelegramBotCallback ===");
         
         // 1. 获取 Telegram 机器人发送的数据
         $tgId = $request->input('id');
