@@ -64,24 +64,10 @@ class Login extends Telegram {
             $responseData = json_decode($response->getContent(), true);
 
             if (isset($responseData['data']) && isset($responseData['data']['token'])) {
+                // 对邮箱进行脱敏处理
+                $maskedEmail = \App\Utils\Helper::maskEmail($user->email);
                 // 登录成功
-                // 检查是否有明文密码返回，以此判断是首次注册（通过邮箱绑定）还是后续登录
-                // 注意：对于已经绑定 telegram_id 的用户，oauthLoginInternal 通常不会返回 plain_password
-                // 但对于通过邮箱找到并绑定 telegram_id 的用户（在 handleRegistration 中处理），可能会返回。
-                $plainPassword = $responseData['data']['plain_password'] ?? null;
-                $isFirstRegistration = !is_null($plainPassword);
-                
-                if ($isFirstRegistration) {
-                    // 首次注册（通过邮箱找到并绑定 telegram_id）
-                    // 使用 Markdown 格式发送账户信息给用户，显示完整邮箱
-                    $accountInfo = "✅ **注册成功！**\n\n欢迎使用我们的服务！\n您的账户信息：\n📧 **邮箱**: `{$user->email}`\n🔑 **密码**: `{$plainPassword}`\n\n您可以继续在网页操作，请及时更换邮箱为您的常用邮箱\n请妥善保管您的账户信息。您也可以使用 Telegram 快捷登录。";
-                    $this->sendReply($message, $accountInfo, 'markdown');
-                } else {
-                    // 后续登录
-                    // 对邮箱进行脱敏处理
-                    $maskedEmail = \App\Utils\Helper::maskEmail($user->email);
-                    $this->sendReply($message, "✅ 登录成功！\n\n您已成功登录到网站。\n用户邮箱: {$maskedEmail}", 'markdown');
-                }
+                $this->sendReply($message, "✅ 登录成功！\n\n您已成功登录到网站。\n用户邮箱: `{$maskedEmail}`", 'markdown');
             } else if (isset($responseData['error'])) {
                 // 登录失败
                 $this->sendReply($message, "❌ 登录失败: " . $responseData['error']);
