@@ -161,20 +161,86 @@ class Login extends Telegram {
         }
     }
 
-    private function escapeMarkdownV2($text) {
-        $specialChars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
-        $escapedChars = array_map(function ($char) {
-            return '\\' . $char;
-        }, $specialChars);
+    /**
+     * Telegram MarkdownV2 安全转义（保留 `...` 和 ```...``` 中的原文，仅转义其中的 \ 和 `）
+     */
+    private function escapeMarkdownV2PreservingCode(string $text): string
+    {
+        // 拆分为：代码段（```...``` 或 `...`） 与 非代码段
+        $pattern = '/(```[\s\S]*?```|`[^`]*`)/m';
+        $parts = preg_split($pattern, $text, -1, PREG_SPLIT_DELIM_CAPTURE);
 
-        return str_replace($specialChars, $escapedChars, $text);
+        if ($parts === false) {
+            // 回退：极端情况下直接做全局转义
+            return $this->escapeAllMarkdownV2($text);
+        }
+
+        $out = '';
+        foreach ($parts as $part) {
+            if ($part === '') {
+                continue;
+            }
+
+            // 命中代码块 ```...```
+            if (substr($part, 0, 3) === '```' && substr($part, -3) === '```') {
+                // 去掉围栏
+                $inner = substr($part, 3, -3);
+
+                // 支持可选语言前缀（第一行）
+                $nlPos = strpos($inner, "\n");
+                if ($nlPos !== false) {
+                    $lang = substr($inner, 0, $nlPos);
+                    $code = substr($inner, $nlPos + 1);
+                    // 代码里仅转义 \ 和 `
+                    $code = str_replace(['\\', '`'], ['\\\\', '\`'], $code);
+                    $part = "```{$lang}\n{$code}```";
+                } else {
+                    $code = str_replace(['\\', '`'], ['\\\\', '\`'], $inner);
+                    $part = "```{$code}```";
+                }
+                $out .= $part;
+                continue;
+            }
+
+            // 命中行内代码 `...`
+            if ($part[0] === '`' && substr($part, -1) === '`') {
+                $code = substr($part, 1, -1);
+                $code = str_replace(['\\', '`'], ['\\\\', '\`'], $code); // 只转义 \ 和 `
+                $out .= '`' . $code . '`';
+                continue;
+            }
+
+            // 非代码段：完整 MarkdownV2 转义
+            $out .= $this->escapeAllMarkdownV2($part);
+        }
+
+        return $out;
     }
 
-    private function sendReply($message, $text, $parseMode = '') {
+    /**
+     * MarkdownV2 全字符转义（用于非代码段）
+     * 需要转义的字符： _ * [ ] ( ) ~ ` > # + - = | { } . !
+     */
+    private function escapeAllMarkdownV2(string $text): string
+    {
+        $special = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
+        $repl    = array_map(function ($c) {
+            return '\\' . $c;
+        }, $special);
+        return str_replace($special, $repl, $text);
+    }
+
+    /**
+     * 统一出口：发送前自动转义并使用 MarkdownV2
+     */
+    private function sendReply($message, $text, $parseMode = '')
+    {
         try {
-            if (strtolower($parseMode) === 'markdown' || strtolower($parseMode) === 'markdownv2') {
-                $text = $this->escapeMarkdownV2($text);
-                $parseMode = 'MarkdownV2'; // 推荐统一用 MarkdownV2
+            // 只要调用方传了 markdown / markdownv2，就自动做安全转义并统一为 MarkdownV2
+            $mode = strtolower($parseMode);
+            if ($mode === 'markdown' || $mode === 'markdownv2') {
+                $text = $this->escapeMarkdownV2PreservingCode($text);
+                $parseMode = 'MarkdownV2';
             }
 
             $telegramService = $this->telegramService;
