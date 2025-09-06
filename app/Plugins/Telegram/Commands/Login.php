@@ -161,8 +161,22 @@ class Login extends Telegram {
         }
     }
 
+    private function escapeMarkdownV2($text) {
+        $specialChars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
+        $escapedChars = array_map(function ($char) {
+            return '\\' . $char;
+        }, $specialChars);
+
+        return str_replace($specialChars, $escapedChars, $text);
+    }
+
     private function sendReply($message, $text, $parseMode = '') {
         try {
+            if (strtolower($parseMode) === 'markdown' || strtolower($parseMode) === 'markdownv2') {
+                $text = $this->escapeMarkdownV2($text);
+                $parseMode = 'MarkdownV2'; // 推荐统一用 MarkdownV2
+            }
+
             $telegramService = $this->telegramService;
             $telegramService->sendMessage($message->chat_id, $text, $parseMode);
         } catch (\Exception $e) {
