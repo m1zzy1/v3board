@@ -527,9 +527,7 @@ class OAuthController extends Controller
      */
     public function handleTelegramBotCallback(Request $request)
     {
-        // 强制写入日志并刷新，确保即使程序崩溃也能记录
-        error_log("[" . date('Y-m-d H:i:s') . "] === FULLY ENTERING handleTelegramBotCallback (via error_log) ===" . PHP_EOL, 3, storage_path('logs/debug.log'));
-        flush();
+        $this->debugLog("START");
         
         \Log::info("=== FULLY ENTERING handleTelegramBotCallback ===");
 
@@ -610,17 +608,29 @@ class OAuthController extends Controller
         }
         
         // 调试日志：确认 handleTelegramBotCallback 接收到了 oauthLoginInternal 的返回值
-        error_log("[" . date('Y-m-d H:i:s') . "] oauthLoginInternal returned to handleTelegramBotCallback" . PHP_EOL, 3, storage_path('logs/debug.log'));
-        flush();
-        
+        $this->debugLog("oauthLoginInternal returned", $result);
         \Log::info("oauthLoginInternal returned to handleTelegramBotCallback", [
             'result' => $result,
             'type' => gettype($result),
             'keys' => is_array($result) ? array_keys($result) : 'N/A'
         ]);
-
+        
+        // 检查 $result 是否为数组且包含 'success' 键
+        if (!is_array($result)) {
+            $this->debugLog("ERROR: oauthLoginInternal did not return an array", ['result' => $result, 'type' => gettype($result)]);
+            \Log::error("oauthLoginInternal did not return an array", ['result' => $result, 'type' => gettype($result)]);
+            return response()->json(['error' => 'Internal error: Invalid return type from oauthLoginInternal'], 500);
+        }
+        
+        if (!array_key_exists('success', $result)) {
+            $this->debugLog("ERROR: oauthLoginInternal return array missing 'success' key", ['result' => $result]);
+            \Log::error("oauthLoginInternal return array missing 'success' key", ['result' => $result]);
+            return response()->json(['error' => 'Internal error: Missing success key from oauthLoginInternal'], 500);
+        }
+        
+        $this->debugLog("Result success", ['success' => $result['success']]);
+        
         if ($result['success']) {
-            \Log::info("Entered if (\$result['success']) block", ['success_value' => $result['success']]);
             $token = $result['token'];
             $authData = $result['auth_data'];
             $plainPassword = $result['plain_password'];
@@ -716,10 +726,14 @@ class OAuthController extends Controller
             if ($plainPassword) {
                 $responseData['data']['plain_password'] = $plainPassword;
             }
-
-            return response()->json($responseData);
+            
+            $this->debugLog("END: About to return success response", $responseData);
+            $response = response()->json($responseData);
+            $this->debugLog("END: Response created");
+            return $response;
         } else {
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/register.';
+            $this->debugLog("END: Returning error response", ['error' => $errorMessage]);
             Log::error("Telegram login/register failed in oauthLoginInternal.", [
                 'error' => $errorMessage,
                 'tg_id' => $tgId,
@@ -856,6 +870,21 @@ class OAuthController extends Controller
             'status' => 'success',
             'data' => $responseData,
         ]);
+    }
+    
+    /**
+     * 专门用于调试 handleTelegramBotCallback 的日志记录方法
+     * 使用 error_log 确保即使在 Laravel 日志系统出问题时也能记录
+     */
+    private function debugLog($message, $data = []) {
+        $log_prefix = "[" . date('Y-m-d H:i:s') . "] [handleTelegramBotCallback] ";
+        $log_message = $log_prefix . $message;
+        if (!empty($data)) {
+            $log_message .= " | Data: " . json_encode($data, JSON_UNESCAPED_UNICODE);
+        }
+        $log_message .= PHP_EOL;
+        error_log($log_message, 3, storage_path('logs/debug.log'));
+        flush();
     }
 
 }
