@@ -14,7 +14,7 @@ class AuthChangeEmail extends FormRequest
     public function rules()
     {
         return [
-            'new_email' => 'required|email:strict|unique:users,email', // 新邮箱必须是有效的邮箱且未被其他用户使用
+            'new_email' => 'required|email:strict|unique:v2_user,email', // 新邮箱必须是有效的邮箱且未被其他用户使用 (修正表名为 v2_user)
             'email_code' => 'nullable|string|max:32' // 验证码，只有在开启邮箱验证时才是必需的
         ];
     }
