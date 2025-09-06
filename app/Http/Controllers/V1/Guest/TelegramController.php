@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\TelegramService;
 use Illuminate\Http\Request;
 use App\Http\Controllers\V1\Passport\OAuthController;
+use Illuminate\Support\Facades\App; // 添加对 App Facade 的引用
 
 class TelegramController extends Controller
 {
@@ -15,8 +16,11 @@ class TelegramController extends Controller
 
     public function __construct(Request $request)
     {
-        if ($request->input('access_token') !== md5(config('v2board.telegram_bot_token'))) {
-            abort(401);
+        // 只在非命令行环境下执行访问令牌检查
+        if (!App::runningInConsole()) {
+            if ($request->input('access_token') !== md5(config('v2board.telegram_bot_token'))) {
+                abort(401);
+            }
         }
 
         $this->telegramService = new TelegramService();
