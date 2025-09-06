@@ -532,75 +532,106 @@ class OAuthController extends Controller
         \Log::info("=== FULLY ENTERING handleTelegramBotCallback ===");
 
         // 1. 获取 Telegram 机器人发送的数据
+        $this->debugLog("Step 1: Getting request inputs");
         $tgId = $request->input('id');
         $hash = $request->input('hash'); // 这是用户发送给机器人的 hash
         $message = $request->input('message');
+        $this->debugLog("Step 1: Got request inputs", ['id' => $tgId, 'hash' => $hash]);
 
         \Log::info("Raw request inputs", ['id' => $tgId, 'hash' => $hash, 'message' => $message]);
 
         if (!$tgId || !$hash) {
+            $this->debugLog("Step 1 ERROR: Missing required parameters", ['tg_id' => $tgId, 'hash' => $hash]);
             \Log::error("Missing required parameters in handleTelegramBotCallback", ['tg_id' => $tgId, 'hash' => $hash]);
             return response()->json(['error' => 'Missing required parameters'], 400);
         }
 
         // 2. 验证 hash 值是否存在且未过期
+        $this->debugLog("Step 2: Validating hash");
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_HASH', $hash);
+        $this->debugLog("Step 2: Cache key for validation", ['cache_key' => $cacheKey]);
         \Log::info("Checking TELEGRAM_LOGIN_HASH cache key", ['cache_key' => $cacheKey]);
         $cachedHash = Cache::get($cacheKey);
+        $this->debugLog("Step 2: Retrieved cached hash", ['cached_value' => $cachedHash, 'expected_hash' => $hash]);
         \Log::info("Retrieved cached hash", ['cached_value' => $cachedHash, 'expected_hash' => $hash]);
 
         if ($cachedHash !== $hash) {
+            $this->debugLog("Step 2 ERROR: Invalid or expired hash", ['provided_hash' => $hash, 'cached_hash' => $cachedHash]);
             \Log::warning("Invalid or expired hash", ['provided_hash' => $hash, 'cached_hash' => $cachedHash]);
             return response()->json(['error' => 'Invalid or expired hash'], 400);
         }
 
         // 3. 删除已使用的 hash 值
+        $this->debugLog("Step 3: Removing used hash from cache");
         Cache::forget($cacheKey);
+        $this->debugLog("Step 3: Removed used hash from cache", ['cache_key' => $cacheKey]);
         \Log::info("Removed used TELEGRAM_LOGIN_HASH from cache", ['cache_key' => $cacheKey]);
 
         // 4. 检查用户是否已绑定 Telegram ID
+        $this->debugLog("Step 4: Checking if user is already bound to Telegram ID");
         $user = User::where('telegram_id', $tgId)->first();
         $userExistedBeforeOAuth = false; // 标记用户在调用 oauthLoginInternal 之前是否已存在于数据库
+        $this->debugLog("Step 4: User lookup result", ['user_found' => !is_null($user), 'tg_id' => $tgId]);
 
         if ($user) {
             $userExistedBeforeOAuth = true;
+            $this->debugLog("Step 4: User already bound", ['user_id' => $user->id, 'tg_id' => $tgId]);
             \Log::info("User already bound to Telegram ID", ['user_id' => $user->id, 'tg_id' => $tgId]);
         } else {
             // 用户未通过 telegram_id 绑定，检查是否通过邮箱注册过 (针对 tg_xxx@xxx 邮箱的旧用户)
+            $this->debugLog("Step 4: User not bound, checking by email");
             $appUrlHost = parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com';
             $email = "tg_{$tgId}@{$appUrlHost}";
+            $this->debugLog("Step 4: Checking for existing user by email", ['email' => $email]);
             $user = User::where('email', $email)->first();
+            $this->debugLog("Step 4: User found by email", ['user_found' => !is_null($user), 'email' => $email]);
             \Log::info("Checked for existing user by email", ['email' => $email, 'user_found' => !is_null($user)]);
 
             if ($user) {
                 // 找到通过邮箱存在的旧用户，绑定 Telegram ID
+                $this->debugLog("Step 4: Binding Telegram ID to existing user", ['user_id' => $user->id, 'tg_id' => $tgId]);
                 $user->telegram_id = $tgId;
                 if (!$user->save()) {
+                    $this->debugLog("Step 4 ERROR: Failed to bind Telegram ID", ['user_id' => $user->id, 'tg_id' => $tgId]);
                     \Log::error("Failed to bind Telegram ID to existing user", ['user_id' => $user->id, 'tg_id' => $tgId]);
                     return response()->json(['error' => 'Failed to bind Telegram account'], 500);
                 }
                 $userExistedBeforeOAuth = true; // 该用户在 oauthLoginInternal 调用前已存在
+                $this->debugLog("Step 4: Telegram ID bound successfully", ['user_id' => $user->id, 'tg_id' => $tgId]);
                 \Log::info("Bound Telegram ID to existing user", ['user_id' => $user->id, 'tg_id' => $tgId]);
+            } else {
+                 $this->debugLog("Step 4: No existing user found by email, will create new user");
             }
             // 如果 $user 仍为 null，则表示这是一个完全的新用户，将在 oauthLoginInternal 中创建
         }
 
         // 5. 执行登录或注册逻辑
         // 构造邮箱：如果用户已存在，则使用其邮箱；否则构造一个临时邮箱用于新用户创建
+        $this->debugLog("Step 5: Preparing email for oauthLoginInternal");
         $email = $user ? $user->email : "tg_{$tgId}@" . (parse_url(config('v2board.app_url'), PHP_URL_HOST) ?: 'yourdomain.com');
         $firstName = $request->input('first_name', 'TG User');
         $name = $firstName;
+        $this->debugLog("Step 5: Email prepared", ['email' => $email]);
 
+        $this->debugLog("Step 5: Calling internal OAuth login/register logic for Telegram", [
+            'email' => $email, 
+            'tg_id' => $tgId, 
+            'user_existed_before' => $userExistedBeforeOAuth
+        ]);
         \Log::info("Calling internal OAuth login/register logic for Telegram", [
-            'email' => $email,
-            'tg_id' => $tgId,
+            'email' => $email, 
+            'tg_id' => $tgId, 
             'user_existed_before' => $userExistedBeforeOAuth
         ]);
         
         // 使用 try...catch 捕获 oauthLoginInternal 中可能抛出的异常
+        $this->debugLog("Step 5: Calling oauthLoginInternal");
         try {
             $result = $this->oauthLoginInternal($email, $name);
+            $this->debugLog("Step 5: oauthLoginInternal returned");
         } catch (\Exception $e) {
+            $error_msg = "Step 5 EXCEPTION in oauthLoginInternal: " . $e->getMessage();
+            $this->debugLog($error_msg);
             error_log("[" . date('Y-m-d H:i:s') . "] Exception in oauthLoginInternal: " . $e->getMessage() . PHP_EOL . $e->getTraceAsString() . PHP_EOL, 3, storage_path('logs/debug.log'));
             flush();
             \Log::error("Exception in oauthLoginInternal", ['message' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
@@ -608,7 +639,7 @@ class OAuthController extends Controller
         }
         
         // 调试日志：确认 handleTelegramBotCallback 接收到了 oauthLoginInternal 的返回值
-        $this->debugLog("oauthLoginInternal returned", $result);
+        $this->debugLog("Step 5: oauthLoginInternal returned", $result);
         \Log::info("oauthLoginInternal returned to handleTelegramBotCallback", [
             'result' => $result,
             'type' => gettype($result),
@@ -616,31 +647,42 @@ class OAuthController extends Controller
         ]);
         
         // 检查 $result 是否为数组且包含 'success' 键
+        $this->debugLog("Step 5: Checking result structure");
         if (!is_array($result)) {
-            $this->debugLog("ERROR: oauthLoginInternal did not return an array", ['result' => $result, 'type' => gettype($result)]);
+            $this->debugLog("Step 5 ERROR: oauthLoginInternal did not return an array", ['result' => $result, 'type' => gettype($result)]);
             \Log::error("oauthLoginInternal did not return an array", ['result' => $result, 'type' => gettype($result)]);
             return response()->json(['error' => 'Internal error: Invalid return type from oauthLoginInternal'], 500);
         }
         
         if (!array_key_exists('success', $result)) {
-            $this->debugLog("ERROR: oauthLoginInternal return array missing 'success' key", ['result' => $result]);
+            $this->debugLog("Step 5 ERROR: oauthLoginInternal return array missing 'success' key", ['result' => $result]);
             \Log::error("oauthLoginInternal return array missing 'success' key", ['result' => $result]);
             return response()->json(['error' => 'Internal error: Missing success key from oauthLoginInternal'], 500);
         }
         
-        $this->debugLog("Result success", ['success' => $result['success']]);
-        
+        $this->debugLog("Step 5: Result success", ['success' => $result['success']]);
+
         if ($result['success']) {
+            $this->debugLog("SUCCESS BRANCH: Entered if (result['success']) block");
+            \Log::info("Entered if (\$result['success']) block", ['success_value' => $result['success']]);
+            
+            $this->debugLog("SUCCESS BRANCH: Extracting token, authData, plainPassword");
             $token = $result['token'];
             $authData = $result['auth_data'];
             $plainPassword = $result['plain_password'];
             \Log::info("Telegram login/register process successful via oauthLoginInternal", [
-                'token_provided' => !empty($token),
+                'token_provided' => !empty($token), 
                 'tg_id' => $tgId,
                 'user_id' => $result['auth_data']['user']['id'] ?? 'N/A'
             ]);
 
             // --- 新增：存储登录结果供前端轮询获取 ---
+            $this->debugLog("SUCCESS BRANCH: About to store login result in cache", [
+                'tg_id' => $tgId,
+                'hash' => $hash,
+                'result_success' => $result['success'] ?? false,
+                'user_email' => $email ?? 'N/A'
+            ]);
             \Log::info("About to store Telegram login result", [
                 'tg_id' => $tgId,
                 'EXACT_HASH_RECEIVED' => $hash, // 记录从请求中获取的 hash
@@ -649,10 +691,13 @@ class OAuthController extends Controller
             ]);
 
             // 构造用于前端轮询的缓存键
+            $this->debugLog("SUCCESS BRANCH: Constructing cache key for login result");
             $loginResultCacheKey = CacheKey::get('TELEGRAM_LOGIN_RESULT', $hash);
+            $this->debugLog("SUCCESS BRANCH: Cache key for login result", ['cache_key' => $loginResultCacheKey]);
             \Log::info("EXACT_CACHE_KEY_FOR_STORING", ['cache_key' => $loginResultCacheKey]);
 
             // 准备存储的数据
+            $this->debugLog("SUCCESS BRANCH: Preparing login result data");
             $loginResultData = [
                 'user_id' => $result['auth_data']['user']['id'] ?? null, // 从 auth_data 中获取 user_id
                 'token' => $token,
@@ -660,60 +705,81 @@ class OAuthController extends Controller
                 'auth_data' => $authData['auth_data'] ?? '',
                 'plain_password' => $plainPassword // 可选，对于前端可能不需要
             ];
-
+            
+            $this->debugLog("SUCCESS BRANCH: Prepared login result data", ['data' => $loginResultData]);
             \Log::info("Prepared login result data", ['data' => $loginResultData]);
 
             // 存储到缓存，过期时间可以与 hash 一致或稍长一些，例如 300 秒 (5分钟)
             // 使用 put 方法替换之前的 remember 方法，因为我们有确切的数据
+            $this->debugLog("SUCCESS BRANCH: Calling Cache::put");
             Cache::put($loginResultCacheKey, $loginResultData, 300);
+            $this->debugLog("SUCCESS BRANCH: Cache::put completed");
             \Log::info("Stored Telegram login result in cache for frontend polling", [
-                'cache_key' => $loginResultCacheKey,
+                'cache_key' => $loginResultCacheKey, 
                 'user_id' => $loginResultData['user_id'],
                 'expires_in_seconds' => 300
             ]);
-
+            
             // 为了验证存储是否成功，立即尝试读取
+            $this->debugLog("SUCCESS BRANCH: Calling Cache::get to verify storage");
             $verifyData = Cache::get($loginResultCacheKey);
+            $this->debugLog("SUCCESS BRANCH: Cache::get verification completed", [
+                'key' => $loginResultCacheKey, 
+                'data_found' => !is_null($verifyData), 
+                'data' => $verifyData
+            ]);
             \Log::info("VERIFY_CACHE_AFTER_PUT", [
-                'key' => $loginResultCacheKey,
-                'data_found' => !is_null($verifyData),
+                'key' => $loginResultCacheKey, 
+                'data_found' => !is_null($verifyData), 
                 'data' => $verifyData
             ]);
             // --- 结束新增 ---
+            
             // 如果用户在 oauthLoginInternal 调用前并不存在，那么 oauthLoginInternal 应该创建了新用户。
             // 我们需要确保新用户的 telegram_id 被正确设置。
+            $this->debugLog("SUCCESS BRANCH: Checking if user existed before");
             if (!$userExistedBeforeOAuth) {
+                $this->debugLog("SUCCESS BRANCH: New user was created, attempting to bind telegram_id");
                 // 重新通过 email 查找新创建的用户，因为 oauthLoginInternal 中创建并保存了它
                 // 使用 email 查找是可靠的，因为它是由 tgId 构造的且在 oauthLoginInternal 中用于创建用户
                 $newlyCreatedUser = User::where('email', $email)->first();
-
+                $this->debugLog("SUCCESS BRANCH: Looked up newly created user", ['user_found' => !is_null($newlyCreatedUser), 'email' => $email]);
+                
                 if ($newlyCreatedUser && !$newlyCreatedUser->telegram_id) {
                     // 新用户已创建，但 telegram_id 未设置，进行绑定
-                    Log::info("Binding telegram_id to newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
+                    $this->debugLog("SUCCESS BRANCH: Binding telegram_id to newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
+                    \Log::info("Binding telegram_id to newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
                     $newlyCreatedUser->telegram_id = $tgId;
                     if (!$newlyCreatedUser->save()) {
                         // 记录错误，但不中断主流程（用户已成功登录/注册）
-                        Log::error("Failed to save telegram_id for newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
+                        $this->debugLog("SUCCESS BRANCH ERROR: Failed to save telegram_id for newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
+                        \Log::error("Failed to save telegram_id for newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId, 'email' => $email]);
                         // 可以考虑在这里返回一个特定的警告信息，或者在前端提示用户手动绑定
                         // 但为了保持现有行为，我们仅记录日志
                     } else {
-                        Log::info("Successfully saved telegram_id for newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId]);
+                        $this->debugLog("SUCCESS BRANCH: telegram_id bound successfully to newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId]);
+                        \Log::info("Successfully saved telegram_id for newly created user", ['user_id' => $newlyCreatedUser->id, 'tg_id' => $tgId]);
                     }
                 } else if ($newlyCreatedUser && $newlyCreatedUser->telegram_id) {
-                    // 理论上不应该发生，除非 oauthLoginInternal 内部或其他地方意外设置了
-                    // 但为了健壮性检查一下
-                    Log::debug("Newly created user already had telegram_id set (this is unusual but not necessarily an error)", ['user_id' => $newlyCreatedUser->id, 'existing_tg_id' => $newlyCreatedUser->telegram_id, 'tg_id_from_request' => $tgId]);
+                     // 理论上不应该发生，除非 oauthLoginInternal 内部或其他地方意外设置了
+                     // 但为了健壮性检查一下
+                     $this->debugLog("SUCCESS BRANCH WARNING: Newly created user already had telegram_id set", ['user_id' => $newlyCreatedUser->id, 'existing_tg_id' => $newlyCreatedUser->telegram_id, 'tg_id_from_request' => $tgId]);
+                     \Log::debug("Newly created user already had telegram_id set (this is unusual but not necessarily an error)", ['user_id' => $newlyCreatedUser->id, 'existing_tg_id' => $newlyCreatedUser->telegram_id, 'tg_id_from_request' => $tgId]);
                 } else {
-                    // $newlyCreatedUser 为空，这表示 oauthLoginInternal 应该创建了用户但查找失败，属于严重错误
-                    Log::critical("Could not find newly created user to bind telegram_id, although oauthLoginInternal reported success", ['email' => $email, 'tg_id' => $tgId]);
-                    // 这种情况下，虽然返回了 token，但用户数据可能不一致。
-                    // 考虑是否需要返回一个错误，但这可能破坏现有用户体验。
-                    // 当前选择记录严重错误日志。
+                     // $newlyCreatedUser 为空，这表示 oauthLoginInternal 应该创建了用户但查找失败，属于严重错误
+                     $this->debugLog("SUCCESS BRANCH CRITICAL: Could not find newly created user to bind telegram_id", ['email' => $email, 'tg_id' => $tgId]);
+                     \Log::critical("Could not find newly created user to bind telegram_id, although oauthLoginInternal reported success", ['email' => $email, 'tg_id' => $tgId]);
+                     // 这种情况下，虽然返回了 token，但用户数据可能不一致。
+                     // 考虑是否需要返回一个错误，但这可能破坏现有用户体验。
+                     // 当前选择记录严重错误日志。
                 }
+            } else {
+                $this->debugLog("SUCCESS BRANCH: User existed before, no need to bind telegram_id");
             }
             // --- 结束关键修复逻辑 ---
 
             // 返回登录数据
+            $this->debugLog("SUCCESS BRANCH: Preparing response to return to Login.php");
             $responseData = [
                 'data' => [
                     'token' => $token,
@@ -721,22 +787,24 @@ class OAuthController extends Controller
                     'auth_data' => $authData['auth_data'] ?? ''
                 ]
             ];
-
+            
             // 如果有明文密码（新注册用户），也添加到响应中
             if ($plainPassword) {
                 $responseData['data']['plain_password'] = $plainPassword;
+                $this->debugLog("SUCCESS BRANCH: Added plain_password to response");
             }
             
-            $this->debugLog("END: About to return success response", $responseData);
+            $this->debugLog("SUCCESS BRANCH: END - About to return success response", $responseData);
             $response = response()->json($responseData);
-            $this->debugLog("END: Response created");
+            $this->debugLog("SUCCESS BRANCH: END - Response created");
             return $response;
         } else {
+            $this->debugLog("FAILURE BRANCH: oauthLoginInternal returned failure");
             $errorMessage = $result['message'] ?? 'Unknown error during Telegram login/register.';
-            $this->debugLog("END: Returning error response", ['error' => $errorMessage]);
-            Log::error("Telegram login/register failed in oauthLoginInternal.", [
-                'error' => $errorMessage,
-                'tg_id' => $tgId,
+            $this->debugLog("FAILURE BRANCH: Error message", ['error' => $errorMessage]);
+            \Log::error("Telegram login/register failed in oauthLoginInternal.", [
+                'error' => $errorMessage, 
+                'tg_id' => $tgId, 
                 'email' => $email,
                 'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5) // 添加调用栈信息
             ]);
@@ -804,24 +872,32 @@ class OAuthController extends Controller
         
         \Log::info("=== DEBUG checkTelegramLogin START ===");
         
+        $this->debugLog("checkTelegramLogin Step 1: Getting code from request");
         $code = $request->input('code'); // 这里的 code 就是前端获取到的 hash 值
+        $this->debugLog("checkTelegramLogin Step 1: Got code", ['code' => $code]);
         $this->debugLog("EXACT_CODE_RECEIVED_FROM_FRONTEND", ['code' => $code]);
         \Log::info("EXACT_CODE_RECEIVED_FROM_FRONTEND", ['code' => $code]);
         
         if (!$code) {
-            $this->debugLog("checkTelegramLogin ERROR: code is required");
+            $this->debugLog("checkTelegramLogin Step 1 ERROR: code is required");
             \Log::warning("Telegram login check failed: code is required");
             return response()->json(['error' => 'code is required'], 400);
         }
 
         // 使用 hash 构造缓存键来查找登录结果
-        $this->debugLog("Constructing cache key");
+        $this->debugLog("checkTelegramLogin Step 2: Constructing cache key");
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_RESULT', $code);
+        $this->debugLog("checkTelegramLogin Step 2: Cache key constructed", ['cache_key' => $cacheKey]);
         $this->debugLog("EXACT_CACHE_KEY_FOR_CHECKING", ['cache_key' => $cacheKey]);
         \Log::info("EXACT_CACHE_KEY_FOR_CHECKING", ['cache_key' => $cacheKey]);
         
-        $this->debugLog("Calling Cache::get");
+        $this->debugLog("checkTelegramLogin Step 3: Calling Cache::get");
         $loginResultData = Cache::get($cacheKey);
+        $this->debugLog("checkTelegramLogin Step 3: Cache::get completed", [
+            'key' => $cacheKey, 
+            'data_found' => !is_null($loginResultData), 
+            'data' => $loginResultData
+        ]);
         $this->debugLog("CACHE_GET_RESULT", [
             'key' => $cacheKey, 
             'data_found' => !is_null($loginResultData), 
@@ -838,26 +914,27 @@ class OAuthController extends Controller
             // 1. 用户还没完成 Telegram 登录流程
             // 2. hash 已过期或无效
             // 3. 登录已成功并且结果已被取走（因为取走后会删除）
-            $this->debugLog("Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
+            $this->debugLog("checkTelegramLogin Step 3: Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
             \Log::info("Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
             return response()->json(['status' => 'pending']); 
         }
 
         // 找到登录结果
         // 验证用户是否存在且未被封禁
+        $this->debugLog("checkTelegramLogin Step 4: Found login result, checking user");
         $userId = $loginResultData['user_id'] ?? null;
         if (!$userId) {
              // 数据不完整
-             $this->debugLog("checkTelegramLogin ERROR: Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
+             $this->debugLog("checkTelegramLogin Step 4 ERROR: Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
              \Log::warning("Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
              Cache::forget($cacheKey); // 清除不完整的数据
              return response()->json(['error' => 'Login result data is invalid'], 500);
         }
         
-        $this->debugLog("Looking up user", ['user_id' => $userId]);
+        $this->debugLog("checkTelegramLogin Step 4: Looking up user", ['user_id' => $userId]);
         $user = User::find($userId);
         if (!$user || $user->banned) {
-            $this->debugLog("checkTelegramLogin ERROR: User not found or banned", [
+            $this->debugLog("checkTelegramLogin Step 4 ERROR: User not found or banned", [
                 'user_id' => $userId, 
                 'banned' => $user->banned ?? 'N/A'
             ]);
@@ -871,6 +948,7 @@ class OAuthController extends Controller
 
         // 登录结果有效，返回给前端
         // 注意：返回的数据结构应与 passport/auth/login 接口保持一致或兼容
+        $this->debugLog("checkTelegramLogin Step 5: Preparing response data");
         $responseData = [
             'token' => $loginResultData['token'],
             'is_admin' => $loginResultData['is_admin'],
@@ -879,7 +957,7 @@ class OAuthController extends Controller
         ];
         
         // 删除已使用的缓存条目，防止重复使用
-        $this->debugLog("Removing cache entry", ['cache_key' => $cacheKey]);
+        $this->debugLog("checkTelegramLogin Step 6: Removing cache entry", ['cache_key' => $cacheKey]);
         Cache::forget($cacheKey);  
         \Log::info("Telegram login result retrieved and cache cleared", [
             'user_id' => $userId, 
