@@ -215,10 +215,14 @@ class TelegramService {
 
     /**
      * 统一出口：发送前自动转义并使用 MarkdownV2
+     * 兼容Login.php中的sendReply方法调用方式
      */
-    public function sendReply($chatId, $text, $parseMode = '')
+    public function sendReply($chatIdOrMessage, $text, $parseMode = '')
     {
         try {
+            // 检查第一个参数是chatId还是message对象
+            $chatId = is_object($chatIdOrMessage) ? $chatIdOrMessage->chat_id : $chatIdOrMessage;
+            
             // 只要调用方传了 markdown / markdownv2，就自动做安全转义并统一为 MarkdownV2
             $mode = strtolower($parseMode);
             if ($mode === 'markdown' || $mode === 'markdownv2') {
