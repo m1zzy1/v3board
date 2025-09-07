@@ -8,11 +8,11 @@ use App\Services\CheckinService;
 
 class LuckyCheckin extends Telegram
 {
-    public $command = '/luckycheckin';
-    public $description = '运气签到，输入数值和单位获得浮动流量';
-    
+    public $command = '/sign2';
+    public $description = '运气签到，输入数值和单位获得浮动流量，例如：/sign2 100.5GB';
+
     private $checkinService;
-    
+
     public function __construct()
     {
         parent::__construct();
@@ -26,38 +26,56 @@ class LuckyCheckin extends Telegram
             $this->telegramService->sendReply($message->chat_id, "❌ 请在私聊中使用签到功能");
             return;
         }
-        
+
         // 检查是否提供了参数
         if (!isset($message->args[0])) {
-            $this->telegramService->sendReply($message->chat_id, "❌ 请提供数值和单位，格式：/luckycheckin <数值> <单位>\n例如：/luckycheckin 100 GB");
+            $this->telegramService->sendReply($message->chat_id, "❌ 请提供数值和单位，格式：`/sign2 <数值><单位>`\n例如：`/sign2 100.5GB` 或 `/sign2 50MB`", "markdown");
             return;
         }
-        
+
         // 解析参数
-        $value = (int)$message->args[0];
-        $unit = isset($message->args[1]) ? strtoupper($message->args[1]) : 'GB';
-        
+        $input = $message->args[0];
+
+        // 使用正则表达式分离数值和单位
+        if (!preg_match('/^(\d+\.?\d*)(MB|GB)$/i', $input, $matches)) {
+            $this->telegramService->sendReply($message->chat_id, "❌ 参数格式错误，请使用格式：/sign2 <数值><单位>\n例如：`/sign2 100.5GB` 或 `/sign2 50MB`", "markdown");
+            return;
+        }
+
+        // 提取最后两个字符作为单位
+        $unit = strtoupper(substr($input, -2));
+        $valueStr = substr($input, 0, -2);
+
+        // 检查单位是否合法
+        if (!in_array($unit, ['MB', 'GB'])) {
+            $this->telegramService->sendReply($message->chat_id, "❌ 单位必须是 MB 或 GB");
+            return;
+        }
+
+        // 检查数值是否为有效数字
+        if (!is_numeric($valueStr)) {
+            $this->telegramService->sendReply($message->chat_id, "❌ 数值格式错误，请输入有效的数字");
+            return;
+        }
+
+        $value = floatval($valueStr);
+
         // 验证参数
         if ($value < 1 || $value > 1000) {
             $this->telegramService->sendReply($message->chat_id, "❌ 数值必须在 1-1000 之间");
             return;
         }
-        
-        if (!in_array($unit, ['MB', 'GB'])) {
-            $this->telegramService->sendReply($message->chat_id, "❌ 单位必须是 MB 或 GB");
-            return;
-        }
-        
+
         // 检查用户是否已绑定Telegram ID
         $user = User::where('telegram_id', $message->chat_id)->first();
         if (!$user) {
             $this->telegramService->sendReply($message->chat_id, "❌ 请先绑定账号，发送 `/bind 订阅地址` 进行绑定", 'markdown');
             return;
         }
-        
+
         // 执行运气签到
-        $result = $this->checkinService->luckyCheckin($user, $value, $unit);
-        
+        $result = $this->checkinService->luckyCheckin($user, (int)$value, $unit);
+
         if ($result['success']) {
             $this->telegramService->sendReply($message->chat_id, "✅ " . $result['message'], 'markdown');
         } else {

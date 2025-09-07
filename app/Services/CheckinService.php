@@ -39,11 +39,11 @@ class CheckinService
      * 用户输入指定流量，获得 +- 流量
      *
      * @param User $user
-     * @param int $value 用户输入的数值
+     * @param float $value 用户输入的数值
      * @param string $unit 单位 (MB 或 GB)
      * @return array
      */
-    public function luckyCheckin(User $user, int $value, string $unit = 'GB')
+    public function luckyCheckin(User $user, float $value, string $unit = 'GB')
     {
         // 开发阶段暂时不限制每日签到次数
         // 检查输入值是否合法 (1-1000)
@@ -64,7 +64,7 @@ class CheckinService
         
         // 转换为字节
         $multiplier = strtoupper($unit) === 'GB' ? 1024 * 1024 * 1024 : 1024 * 1024;
-        $inputBytes = $value * $multiplier;
+        $inputBytes = (int)($value * $multiplier);
         
         // 生成随机流量 (-inputBytes 到 +inputBytes)
         $traffic = rand(-$inputBytes, $inputBytes);
@@ -80,5 +80,32 @@ class CheckinService
             'message' => '运气签到成功！获得 ' . $sign . Helper::trafficConvert(abs($traffic)) . ' 流量',
             'traffic' => $traffic
         ];
+    }
+    
+    /**
+     * 运气签到 (字符串参数版本)
+     * 用户输入指定流量，获得 +- 流量
+     * 支持格式如 "100GB" 或 "50MB"
+     *
+     * @param User $user
+     * @param string $input 用户输入的字符串，格式为数值+单位
+     * @return array
+     */
+    public function luckyCheckinFromString(User $user, string $input)
+    {
+        // 开发阶段暂时不限制每日签到次数
+        // 使用正则表达式分离数值和单位
+        if (!preg_match('/^(\d+)(MB|GB)$/i', $input, $matches)) {
+            return [
+                'success' => false,
+                'message' => '参数格式错误，请使用格式：数值+单位，例如：100GB'
+            ];
+        }
+        
+        $value = (int)$matches[1];
+        $unit = strtoupper($matches[2]);
+        
+        // 复用现有的luckyCheckin方法
+        return $this->luckyCheckin($user, $value, $unit);
     }
 }

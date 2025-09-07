@@ -8,7 +8,7 @@ use App\Services\CheckinService;
 
 class Checkin extends Telegram
 {
-    public $command = '/checkin';
+    public $command = '/sign1';
     public $description = '普通签到，随机获得10MB-1GB流量';
     
     private $checkinService;
