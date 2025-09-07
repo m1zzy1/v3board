@@ -345,50 +345,46 @@ class AuthController extends Controller
             'auth_header_length' => strlen($request->header('authorization', '')),
         ]);
         
-        // 检查$request->user是否存在
-        $this->debugLog("Checking request user", [
-            'user_exists' => isset($request->user),
-            'user_type' => isset($request->user) ? gettype($request->user) : 'null',
-            'user_data' => $request->user ?? null,
+        // 使用和Passport控制器中其他方法一样的方式获取用户
+        $authorization = $request->input('auth_data') ?? $request->header('authorization');
+        $this->debugLog("Authorization token check", [
+            'auth_token_provided' => !empty($authorization),
+            'auth_token_length' => strlen($authorization ?? ''),
         ]);
         
-        if (!isset($request->user)) {
-            $this->debugLog("ERROR: request->user is not set");
-            abort(500, 'DEBUG: $request->user is not set');
-        }
-        
-        if (!is_array($request->user)) {
-            $this->debugLog("ERROR: request->user is not an array", [
-                'user_type' => gettype($request->user),
-                'user_value' => $request->user,
-            ]);
-            abort(500, 'DEBUG: $request->user is not an array, it is ' . gettype($request->user));
-        }
-        
-        if (!isset($request->user['id'])) {
-            $this->debugLog("ERROR: request->user does not contain id key", [
-                'user_array_keys' => array_keys($request->user),
-                'user_array_content' => array_slice($request->user, 0, 5), // 只取前5个元素
-            ]);
-            abort(500, 'DEBUG: $request->user does not contain id key. Keys: ' . implode(',', array_keys($request->user)));
+        if (!$authorization) {
+            $this->debugLog("ERROR: No authorization token provided");
+            abort(403, '未登录或登陆已过期');
         }
 
-        // 从 user 中间件获取当前用户
-        $this->debugLog("Attempting to find user by ID", [
-            'user_id' => $request->user['id'],
+        $user = AuthService::decryptAuthData($authorization);
+        $this->debugLog("AuthService::decryptAuthData result", [
+            'user_data_exists' => !is_null($user),
+            'user_data_type' => gettype($user),
+            'user_data' => is_array($user) ? array_slice($user, 0, 5) : $user,
         ]);
         
-        $user = User::find($request->user['id']);
         if (!$user) {
+            $this->debugLog("ERROR: User authentication failed");
+            abort(403, '未登录或登陆已过期');
+        }
+        
+        // 现在$user是一个数组，包含用户信息
+        $this->debugLog("Attempting to find user by ID", [
+            'user_id' => $user['id'],
+        ]);
+        
+        $userModel = User::find($user['id']);
+        if (!$userModel) {
             $this->debugLog("ERROR: User not found in database", [
-                'requested_user_id' => $request->user['id'],
+                'requested_user_id' => $user['id'],
             ]);
-            abort(500, '用户未认证或认证已过期，请重新登录 - 找不到用户');
+            abort(500, '用户未认证或认证已过期，请重新登录');
         }
         
         $this->debugLog("User found", [
-            'user_id' => $user->id,
-            'user_email' => $user->email,
+            'user_id' => $userModel->id,
+            'user_email' => $userModel->email,
         ]);
 
         $newEmail = $request->input('new_email');
@@ -400,9 +396,9 @@ class AuthController extends Controller
         ]);
         
         // 检查新邮箱是否与旧邮箱相同
-        if ($user->email === $newEmail) {
+        if ($userModel->email === $newEmail) {
             $this->debugLog("ERROR: New email is same as current email", [
-                'current_email' => $user->email,
+                'current_email' => $userModel->email,
                 'new_email' => $newEmail,
             ]);
             abort(500, '新邮箱地址不能与当前邮箱地址相同');
@@ -447,19 +443,19 @@ class AuthController extends Controller
         
         // 更新用户邮箱
         $this->debugLog("Updating user email", [
-            'user_id' => $user->id,
-            'old_email' => $user->email,
+            'user_id' => $userModel->id,
+            'old_email' => $userModel->email,
             'new_email' => $newEmail,
         ]);
         
-        $user->email = $newEmail;
-        if (!$user->save()) {
+        $userModel->email = $newEmail;
+        if (!$userModel->save()) {
             $this->debugLog("ERROR: Failed to save user");
             abort(500, '邮箱地址更新失败');
         }
         
         $this->debugLog("SUCCESS: User email updated", [
-            'user_id' => $user->id,
+            'user_id' => $userModel->id,
             'new_email' => $newEmail,
         ]);
         
