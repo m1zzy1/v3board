@@ -9,7 +9,7 @@ use App\Services\CheckinService;
 class LuckyCheckin extends Telegram
 {
     public $command = '/sign2';
-    public $description = '运气签到，输入数值和单位获得浮动流量(-100%~+100%)，例如：/sign2 100.5GB';
+    public $description = '运气签到，输入数值和单位获得浮动流量(-100%~+100%)，可能获得或扣除流量';
 
     private $checkinService;
 

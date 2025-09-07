@@ -27,8 +27,9 @@ class Help extends Telegram
             '/traffic' => '查询流量信息',
             '/getlatesturl' => '获取最新的站点地址',
             '/sign1' => '普通签到，随机获得10MB-1GB流量',
-            '/sign2' => '运气签到，输入数值和单位获得浮动流量(-100%~+100%)',
+            '/sign2' => '运气签到，输入数值和单位获得浮动流量(-100%~+100%)，可能获得或扣除流量',
             '/login' => '使用哈希值一键注册或登录网站',
+            '/#' => '快速工单回复 (格式: #工单编号 回复内容)'
         ];
 
         foreach ($commands as $command => $description) {
@@ -38,6 +39,8 @@ class Help extends Telegram
         $helpText .= "\n💡 **使用提示**\n";
         $helpText .= "- 所有命令都需要在私聊中使用\n";
         $helpText .= "- 签到命令需要先绑定账号\n";
+        $helpText .= "- 普通签到只会获得流量（+10MB~+1GB）\n";
+        $helpText .= "- 运气签到可能获得或扣除流量（-100%~+100%）\n";
         $helpText .= "- 运气签到格式: `/sign2 100GB` 或 `/sign2 50MB`\n";
         $helpText .= "- 工单回复格式: `#123 您的回复内容`\n";
 

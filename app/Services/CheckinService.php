@@ -35,7 +35,7 @@ class CheckinService
         // 返回结果
         return [
             'success' => true,
-            'message' => '签到成功！获得 ' . Helper::trafficConvert($traffic) . ' 流量 (10MB-1GB随机)',
+            'message' => '签到成功！获得 +' . Helper::trafficConvert($traffic) . ' 流量 (10MB-1GB随机)',
             'traffic' => $traffic
         ];
     }
@@ -85,7 +85,7 @@ class CheckinService
         $user->save();
         
         // 返回结果
-        $sign = $traffic >= 0 ? '+' : '';
+        $sign = $traffic >= 0 ? '获得 +' : '扣除 ';
         return [
             'success' => true,
             'message' => '运气签到成功！可能获得-' . Helper::trafficConvert($inputBytes) . '到+' . Helper::trafficConvert($inputBytes) . '流量，本次' . $sign . Helper::trafficConvert(abs($traffic)) . '流量',
