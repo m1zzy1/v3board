@@ -9,7 +9,7 @@ use App\Services\CheckinService;
 class LuckyCheckin extends Telegram
 {
     public $command = '/sign2';
-    public $description = '运气签到，输入数值和单位获得浮动流量，例如：/sign2 100.5GB';
+    public $description = '运气签到，输入数值和单位获得浮动流量(-100%~+100%)，例如：/sign2 100.5GB';
 
     private $checkinService;
 
@@ -29,7 +29,7 @@ class LuckyCheckin extends Telegram
 
         // 检查是否提供了参数
         if (!isset($message->args[0])) {
-            $this->telegramService->sendReply($message->chat_id, "❌ 请提供数值和单位，格式：`/sign2 <数值><单位>`\n例如：`/sign2 100.5GB` 或 `/sign2 50MB`", "markdown");
+            $this->telegramService->sendReply($message->chat_id, "❌ 请提供数值和单位，格式：`/sign2 <数值><单位>`\n例如：`/sign2 100.5GB` 或 `/sign2 50MB`\n运气签到可能获得负值（扣除流量）或正值（增加流量）", "markdown");
             return;
         }
 
@@ -38,7 +38,7 @@ class LuckyCheckin extends Telegram
 
         // 使用正则表达式分离数值和单位
         if (!preg_match('/^(\d+\.?\d*)(MB|GB)$/i', $input, $matches)) {
-            $this->telegramService->sendReply($message->chat_id, "❌ 参数格式错误，请使用格式：/sign2 <数值><单位>\n例如：`/sign2 100.5GB` 或 `/sign2 50MB`", "markdown");
+            $this->telegramService->sendReply($message->chat_id, "❌ 参数格式错误，请使用格式：/sign2 <数值><单位>\n例如：`/sign2 100.5GB` 或 `/sign2 50MB`\n运气签到可能获得负值（扣除流量）或正值（增加流量）", "markdown");
             return;
         }
 
@@ -74,7 +74,7 @@ class LuckyCheckin extends Telegram
         }
 
         // 执行运气签到
-        $result = $this->checkinService->luckyCheckin($user, (int)$value, $unit);
+        $result = $this->checkinService->luckyCheckinFromString($user, $input);
 
         if ($result['success']) {
             $this->telegramService->sendReply($message->chat_id, "✅ " . $result['message'], 'markdown');

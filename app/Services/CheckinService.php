@@ -16,6 +16,12 @@ class CheckinService
      */
     public function standardCheckin(User $user)
     {
+        // 检查用户是否有有效订阅
+        $subscriptionCheck = $this->checkUserSubscription($user);
+        if (!$subscriptionCheck['success']) {
+            return $subscriptionCheck;
+        }
+        
         // 开发阶段暂时不限制每日签到次数
         // 生成随机流量 (10MB - 1GB)
         $min = 10 * 1024 * 1024; // 10MB
@@ -29,7 +35,7 @@ class CheckinService
         // 返回结果
         return [
             'success' => true,
-            'message' => '签到成功！获得 ' . Helper::trafficConvert($traffic) . ' 流量',
+            'message' => '签到成功！获得 ' . Helper::trafficConvert($traffic) . ' 流量 (10MB-1GB随机)',
             'traffic' => $traffic
         ];
     }
@@ -45,7 +51,12 @@ class CheckinService
      */
     public function luckyCheckin(User $user, float $value, string $unit = 'GB')
     {
-        // 开发阶段暂时不限制每日签到次数
+        // 检查用户是否有有效订阅
+        $subscriptionCheck = $this->checkUserSubscription($user);
+        if (!$subscriptionCheck['success']) {
+            return $subscriptionCheck;
+        }
+        
         // 检查输入值是否合法 (1-1000)
         if ($value < 1 || $value > 1000) {
             return [
@@ -77,7 +88,7 @@ class CheckinService
         $sign = $traffic >= 0 ? '+' : '';
         return [
             'success' => true,
-            'message' => '运气签到成功！获得 ' . $sign . Helper::trafficConvert(abs($traffic)) . ' 流量',
+            'message' => '运气签到成功！可能获得-' . Helper::trafficConvert($inputBytes) . '到+' . Helper::trafficConvert($inputBytes) . '流量，本次' . $sign . Helper::trafficConvert(abs($traffic)) . '流量',
             'traffic' => $traffic
         ];
     }
@@ -93,7 +104,12 @@ class CheckinService
      */
     public function luckyCheckinFromString(User $user, string $input)
     {
-        // 开发阶段暂时不限制每日签到次数
+        // 检查用户是否有有效订阅
+        $subscriptionCheck = $this->checkUserSubscription($user);
+        if (!$subscriptionCheck['success']) {
+            return $subscriptionCheck;
+        }
+        
         // 使用正则表达式分离数值和单位
         if (!preg_match('/^(\d+)(MB|GB)$/i', $input, $matches)) {
             return [
@@ -107,5 +123,34 @@ class CheckinService
         
         // 复用现有的luckyCheckin方法
         return $this->luckyCheckin($user, $value, $unit);
+    }
+    
+    /**
+     * 检查用户是否有有效订阅
+     *
+     * @param User $user
+     * @return array
+     */
+    private function checkUserSubscription(User $user)
+    {
+        // 检查用户是否有订阅计划
+        if ($user->plan_id === null) {
+            return [
+                'success' => false,
+                'message' => '您没有订阅任何套餐，无法进行签到'
+            ];
+        }
+        
+        // 检查订阅是否过期
+        if ($user->expired_at === null || $user->expired_at <= time()) {
+            return [
+                'success' => false,
+                'message' => '您的订阅已过期，无法进行签到'
+            ];
+        }
+        
+        return [
+            'success' => true
+        ];
     }
 }
