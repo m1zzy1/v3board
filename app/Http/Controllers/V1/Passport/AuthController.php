@@ -325,8 +325,8 @@ class AuthController extends Controller
         $this->debugLog("START - Received request", $request->only(['new_email', 'email_code']));
         // --- 结束新增 ---
 
-        /** @var User $user */
-        $user = $request->user(); // 从 auth:api 中间件获取当前用户
+        // 从 user 中间件获取当前用户
+        $user = User::find($request->user['id']);
 
         // --- 新增：调试用户对象 ---
         $this->debugLog("User object retrieved", [

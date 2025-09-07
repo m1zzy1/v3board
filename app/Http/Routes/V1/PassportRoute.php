@@ -13,7 +13,7 @@ class PassportRoute
             // Auth
             $router->post('/auth/register', 'V1\\Passport\\AuthController@register');
             $router->post('/auth/login', 'V1\\Passport\\AuthController@login');
-            $router->post('/auth/changeEmail', 'V1\\Passport\\AuthController@changeEmail'); // 新增：更改用户邮箱
+            $router->post('/auth/changeEmail', 'V1\\Passport\\AuthController@changeEmail')->middleware('user'); // 新增：更改用户邮箱 (添加 user 中间件)
             $router->get ('/auth/token2Login', 'V1\\Passport\\AuthController@token2Login');
             $router->post('/auth/forget', 'V1\\Passport\\AuthController@forget');
             $router->post('/auth/getQuickLoginUrl', 'V1\\Passport\\AuthController@getQuickLoginUrl');
