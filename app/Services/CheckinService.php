@@ -18,7 +18,7 @@ class CheckinService
     {
         // 检查用户是否有有效订阅
         $subscriptionCheck = $this->checkUserSubscription($user);
-        if (!$subscriptionCheck['success']) {
+        if (!$subscriptionCheck['data']) {
             return $subscriptionCheck;
         }
 
@@ -53,14 +53,14 @@ class CheckinService
     {
         // 检查用户是否有有效订阅
         $subscriptionCheck = $this->checkUserSubscription($user);
-        if (!$subscriptionCheck['success']) {
+        if (!$subscriptionCheck['data']) {
             return $subscriptionCheck;
         }
 
         // 检查输入值是否合法 (1-1000)
         if ($value < 1 || $value > 1000) {
             return [
-                'success' => false,
+                'data' => false,
                 'message' => '输入的数值必须在 1-1000 之间'
             ];
         }
@@ -68,7 +68,7 @@ class CheckinService
         // 检查单位是否合法
         if (!in_array(strtoupper($unit), ['MB', 'GB'])) {
             return [
-                'success' => false,
+                'data' => false,
                 'message' => '单位必须是 MB 或 GB'
             ];
         }
