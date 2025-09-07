@@ -321,165 +321,73 @@ class AuthController extends Controller
      */
     public function changeEmail(AuthChangeEmail $request)
     {
-        // --- 新增：调试日志记录 ---
-        $this->debugLog("START - Received request", $request->only(['new_email', 'email_code']));
-        // --- 结束新增 ---
-
-        // 检查 $request->user 是否存在并是数组
-        if (!isset($request->user)) {
-            $this->debugLog("FATAL ERROR: User data not found in request - request->user is not set", [
-                'request_all' => $request->all(),
-                'request_headers' => $request->headers->all(),
-            ]);
-            abort(500, '用户未认证或认证已过期，请重新登录');
-        }
-        
-        if (!is_array($request->user)) {
-            $this->debugLog("FATAL ERROR: User data is not an array", [
-                'request_user' => $request->user,
-                'request_user_type' => gettype($request->user),
-                'request_user_class' => is_object($request->user) ? get_class($request->user) : null,
-            ]);
-            abort(500, '用户未认证或认证已过期，请重新登录');
-        }
-
-        // 验证用户ID是否存在
-        if (!isset($request->user['id'])) {
-            $this->debugLog("FATAL ERROR: User ID not found in request user data", [
-                'request_user' => $request->user,
-                'request_user_keys' => array_keys($request->user),
-            ]);
-            abort(500, '用户未认证或认证已过期，请重新登录');
-        }
-
         // 从 user 中间件获取当前用户
-        $userId = $request->user['id'];
-        $this->debugLog("Attempting to find user by ID", [
-            'user_id' => $userId,
-            'user_id_type' => gettype($userId),
-        ]);
-        
-        $user = User::find($userId);
-
-        // --- 新增：调试用户对象 ---
-        $this->debugLog("User object retrieved", [
-            'user_type' => gettype($user),
-            'user_is_null' => is_null($user),
-            'user_id' => $user ? $user->id : null,
-            'user_email' => $user ? $user->email : null,
-            'user_data' => $user ? $user->toArray() : null,
-        ]);
-        // --- 结束新增 ---
-
+        $user = User::find($request->user['id']);
         if (!$user) {
-            $this->debugLog("FATAL ERROR: Authenticated user not found in database", [
-                'requested_user_id' => $userId,
-            ]);
             abort(500, '用户未认证或认证已过期，请重新登录');
         }
 
         $newEmail = $request->input('new_email');
         $emailCode = $request->input('email_code');
-
-        $this->debugLog("Processing email change request", [
-            'user_id' => $user->id,
-            'current_email' => $user->email,
-            'new_email' => $newEmail,
-            'email_code_provided' => !empty($emailCode),
-        ]);
-
+        
         // 检查新邮箱是否与旧邮箱相同
         if ($user->email === $newEmail) {
-            $this->debugLog("ERROR: New email is the same as current email.", [
-                'user_id' => $user->id,
-                'current_email' => $user->email,
-                'new_email' => $newEmail,
-            ]);
             abort(500, '新邮箱地址不能与当前邮箱地址相同');
         }
-
+        
         // 检查系统是否开启了邮箱验证
         $emailVerifyEnabled = (bool)config('v2board.email_verify', 0);
-        $this->debugLog("Email verification status", [
-            'enabled' => $emailVerifyEnabled,
-            'config_value' => config('v2board.email_verify', 0),
-        ]);
-
+        
         if ($emailVerifyEnabled) {
             // 如果开启了邮箱验证，必须提供验证码
             if (!$emailCode) {
-                $this->debugLog("ERROR: Email code required but not provided.", [
-                    'user_id' => $user->id,
-                    'new_email' => $newEmail,
-                ]);
                 abort(500, '请输入邮箱验证码');
             }
-
+            
             // 验证验证码
             $cacheKey = CacheKey::get('EMAIL_VERIFY_CODE', $newEmail);
             $cachedCode = Cache::get($cacheKey);
-            $this->debugLog("Verifying email code", [
-                'user_id' => $user->id,
-                'new_email' => $newEmail,
-                'cache_key' => $cacheKey,
-                'cached_code_exists' => !is_null($cachedCode),
-                'cached_code' => $cachedCode,
-                'provided_code' => $emailCode,
-                'codes_match' => (string)$cachedCode === (string)$emailCode,
-            ]);
-
+            
             if ((string)$cachedCode !== (string)$emailCode) {
-                $this->debugLog("ERROR: Invalid or expired email code.", [
-                    'user_id' => $user->id,
-                    'new_email' => $newEmail,
-                    'cached_code' => $cachedCode,
-                    'provided_code' => $emailCode,
-                    'cached_code_type' => gettype($cachedCode),
-                    'provided_code_type' => gettype($emailCode),
-                ]);
                 abort(500, '邮箱验证码不正确或已过期');
             }
-
+            
+            // --- 新增：可选的上下文校验 ---
+            // 检查验证码的用途，增强安全性（当前为宽松校验）
+            // 如果未来想收紧，可以要求 context 必须是 'change_email' 或其他特定值
+            $contextKey = CacheKey::get('EMAIL_VERIFY_CODE_CONTEXT', $newEmail);
+            $context = Cache::get($contextKey);
+            // 当前逻辑：只要验证码正确，并且是通过已知渠道发送的（context 存在），就允许使用
+            // 这保持了与原有流程的兼容性
+            if ($context === null) {
+                 // 如果没有上下文信息，可能是旧的验证码，为保持兼容性，暂时允许
+                 // 但在严格模式下，可以在这里拒绝
+                 \Log::warning("changeEmail: Verified code without context", ['email' => $newEmail]);
+            } else if ($context !== 'generic_send') {
+                 // 如果上下文存在但不是 'generic_send'，则可能是为其他目的生成的
+                 // 为保持兼容性，我们仍然允许，但记录警告
+                 \Log::notice("changeEmail: Verified code with non-standard context", ['email' => $newEmail, 'context' => $context]);
+            }
+            // --- 结束新增 ---
+            
             // 验证码正确，可以继续
-            $this->debugLog("SUCCESS: Email code verified successfully.", [
-                'user_id' => $user->id,
-                'new_email' => $newEmail,
-            ]);
-
+            
         } else {
-            $this->debugLog("INFO: Email verification disabled, skipping code check.", [
-                'user_id' => $user->id,
-                'new_email' => $newEmail,
-            ]);
+            // 如果未开启邮箱验证，则不需要验证码，直接继续
+            // $emailCode 可能为 null，但这没关系
         }
-
-        // 更新用户邮箱
-        $this->debugLog("INFO: Updating user email.", [
-            'user_id' => $user->id,
-            'old_email' => $user->email,
-            'new_email' => $newEmail,
-        ]);
         
+        // 更新用户邮箱
         $user->email = $newEmail;
         if (!$user->save()) {
-            $this->debugLog("ERROR: Failed to update user email in database.", [
-                'user_id' => $user->id,
-                'new_email' => $newEmail,
-                'user_data_before_save' => $user->toArray(),
-            ]);
             abort(500, '邮箱地址更新失败');
         }
-
+        
         // 如果开启了邮箱验证并且验证码已使用，则清除验证码缓存
         if ($emailVerifyEnabled && $cachedCode) {
-            $forgetResult = Cache::forget($cacheKey);
-            $this->debugLog("INFO: Used email verification code cleared from cache.", [
-                'user_id' => $user->id,
-                'cache_key' => $cacheKey,
-                'forget_result' => $forgetResult,
-            ]);
+             Cache::forget($cacheKey);
         }
-
+        
         // 记录操作日志
         \Log::info("User changed email", [
             'user_id' => $user->id,
@@ -488,38 +396,10 @@ class AuthController extends Controller
             'email_verify_enabled' => $emailVerifyEnabled
         ]);
         
-        $this->debugLog("SUCCESS: User email updated.", [
-            'user_id' => $user->id,
-            'old_email' => $user->getOriginal('email'),
-            'new_email' => $newEmail,
-        ]);
-
         return response([
             'data' => true,
             'message' => '邮箱地址已成功更新'
         ]);
-    }
-    
-    /**
-     * 专门用于调试 changeEmail 的日志记录方法
-     * 使用 error_log 确保即使在 Laravel 日志系统出问题时也能记录
-     */
-    private function debugLog($message, $data = []) {
-        $log_prefix = "[" . date('Y-m-d H:i:s') . "] [changeEmail] ";
-        $log_message = $log_prefix . $message;
-        if (!empty($data)) {
-            $log_message .= " | Data: " . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-        }
-        $log_message .= PHP_EOL;
-        
-        // 确保日志目录存在
-        $logDir = storage_path('logs');
-        if (!is_dir($logDir)) {
-            mkdir($logDir, 0755, true);
-        }
-        
-        error_log($log_message, 3, storage_path('logs/debug.log'));
-        flush();
     }
 
 }
