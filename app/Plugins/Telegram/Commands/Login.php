@@ -252,14 +252,13 @@ class Login extends Telegram {
             // 只要调用方传了 markdown / markdownv2，就自动做安全转义并统一为 MarkdownV2
             $mode = strtolower($parseMode);
             if ($mode === 'markdown' || $mode === 'markdownv2') {
-                $text = $this->escapeMarkdownV2PreservingCode($text);
+                $text = $this->telegramService->escapeMarkdownV2PreservingCode($text);
                 $parseMode = 'MarkdownV2';
             }
 
-            $telegramService = $this->telegramService;
-            $telegramService->sendMessage($message->chat_id, $text, $parseMode);
+            $this->telegramService->sendMessage($message->chat_id, $text, $parseMode);
         } catch (\Exception $e) {
-            Log::error("Failed to send Telegram message: " . $e->getMessage());
+            \Log::error("Failed to send Telegram message: " . $e->getMessage());
         }
     }
 }

@@ -42,12 +42,6 @@ class UpdateTelegramCommands extends Command
             $telegramService = new TelegramService();
             $commands = $telegramService->discoverCommands(base_path('app/Plugins/Telegram/Commands'));
             
-            // 添加新的 login 命令
-            $commands[] = [
-                'command' => '/login',
-                'description' => '使用哈希值登录网站'
-            ];
-            
             $telegramService->setMyCommands($commands);
             
             $this->info('Telegram commands updated successfully!');
