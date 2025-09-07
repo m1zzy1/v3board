@@ -27,8 +27,7 @@ class UserRoute
             $router->get ('/getActiveSession', 'V1\User\UserController@getActiveSession');
             $router->post('/removeActiveSession', 'V1\User\UserController@removeActiveSession');
             // Checkin
-            $router->post('/checkin/standard', 'V1\User\CheckinController@standardCheckin');
-            $router->post('/checkin/lucky', 'V1\User\CheckinController@luckyCheckin');
+            $router->post('/checkin', 'V1\User\CheckinController@checkin');
             // Order
             $router->post('/order/save', 'V1\User\OrderController@save');
             $router->post('/order/checkout', 'V1\User\OrderController@checkout');
