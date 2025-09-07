@@ -42,9 +42,41 @@ class AuthService
     public static function decryptAuthData($jwt)
     {
         try {
+            \Log::info("AuthService: Starting decryptAuthData", [
+                'jwt_length' => strlen($jwt),
+                'jwt_prefix' => substr($jwt, 0, 10) . '...',
+            ]);
+            
             if (!Cache::has($jwt)) {
+                \Log::info("AuthService: JWT not found in cache, decoding JWT", [
+                    'jwt_prefix' => substr($jwt, 0, 10) . '...',
+                ]);
+                
                 $data = (array)JWT::decode($jwt, new Key(config('app.key'), 'HS256'));
-                if (!self::checkSession($data['id'], $data['session'])) return false;
+                \Log::info("AuthService: JWT decoded successfully", [
+                    'decoded_data_keys' => array_keys($data),
+                    'decoded_data' => array_intersect_key($data, array_flip(['id', 'session'])),
+                ]);
+                
+                if (!isset($data['id']) || !isset($data['session'])) {
+                    \Log::warning("AuthService: Missing required fields in JWT data", [
+                        'decoded_data_keys' => array_keys($data),
+                    ]);
+                    return false;
+                }
+                
+                if (!self::checkSession($data['id'], $data['session'])) {
+                    \Log::warning("AuthService: Session check failed", [
+                        'user_id' => $data['id'],
+                        'session' => $data['session'],
+                    ]);
+                    return false;
+                }
+                
+                \Log::info("AuthService: Session verified, fetching user from database", [
+                    'user_id' => $data['id'],
+                ]);
+                
                 $user = User::select([
                     'id',
                     'email',
@@ -52,19 +84,62 @@ class AuthService
                     'is_staff'
                 ])
                     ->find($data['id']);
-                if (!$user) return false;
+                    
+                if (!$user) {
+                    \Log::warning("AuthService: User not found in database", [
+                        'user_id' => $data['id'],
+                    ]);
+                    return false;
+                }
+                
+                \Log::info("AuthService: User found, caching user data", [
+                    'user_id' => $user->id,
+                    'user_email' => $user->email,
+                ]);
+                
                 Cache::put($jwt, $user->toArray(), 3600);
             }
-            return Cache::get($jwt);
+            
+            $cachedUser = Cache::get($jwt);
+            \Log::info("AuthService: Returning user data from cache", [
+                'user_data_exists' => !is_null($cachedUser),
+                'user_data_type' => gettype($cachedUser),
+                'user_data' => is_array($cachedUser) ? array_intersect_key($cachedUser, array_flip(['id', 'email', 'is_admin', 'is_staff'])) : null,
+            ]);
+            
+            return $cachedUser;
         } catch (\Exception $e) {
+            \Log::error("AuthService: Exception in decryptAuthData", [
+                'exception_message' => $e->getMessage(),
+                'exception_trace' => $e->getTraceAsString(),
+                'jwt_prefix' => substr($jwt ?? '', 0, 10) . '...',
+            ]);
             return false;
         }
     }
 
     private static function checkSession($userId, $session)
     {
+        \Log::info("AuthService: Checking session", [
+            'user_id' => $userId,
+            'session' => $session,
+        ]);
+        
         $sessions = (array)Cache::get(CacheKey::get("USER_SESSIONS", $userId)) ?? [];
-        if (!in_array($session, array_keys($sessions))) return false;
+        \Log::info("AuthService: Retrieved sessions from cache", [
+            'user_id' => $userId,
+            'sessions_count' => count($sessions),
+            'sessions_keys' => array_keys($sessions),
+        ]);
+        
+        $sessionExists = in_array($session, array_keys($sessions));
+        \Log::info("AuthService: Session existence check", [
+            'user_id' => $userId,
+            'session' => $session,
+            'session_exists' => $sessionExists,
+        ]);
+        
+        if (!$sessionExists) return false;
         return true;
     }
 

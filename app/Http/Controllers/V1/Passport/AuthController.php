@@ -325,8 +325,41 @@ class AuthController extends Controller
         $this->debugLog("START - Received request", $request->only(['new_email', 'email_code']));
         // --- 结束新增 ---
 
+        // 检查 $request->user 是否存在并是数组
+        if (!isset($request->user)) {
+            $this->debugLog("FATAL ERROR: User data not found in request - request->user is not set", [
+                'request_all' => $request->all(),
+                'request_headers' => $request->headers->all(),
+            ]);
+            abort(500, '用户未认证或认证已过期，请重新登录');
+        }
+        
+        if (!is_array($request->user)) {
+            $this->debugLog("FATAL ERROR: User data is not an array", [
+                'request_user' => $request->user,
+                'request_user_type' => gettype($request->user),
+                'request_user_class' => is_object($request->user) ? get_class($request->user) : null,
+            ]);
+            abort(500, '用户未认证或认证已过期，请重新登录');
+        }
+
+        // 验证用户ID是否存在
+        if (!isset($request->user['id'])) {
+            $this->debugLog("FATAL ERROR: User ID not found in request user data", [
+                'request_user' => $request->user,
+                'request_user_keys' => array_keys($request->user),
+            ]);
+            abort(500, '用户未认证或认证已过期，请重新登录');
+        }
+
         // 从 user 中间件获取当前用户
-        $user = User::find($request->user['id']);
+        $userId = $request->user['id'];
+        $this->debugLog("Attempting to find user by ID", [
+            'user_id' => $userId,
+            'user_id_type' => gettype($userId),
+        ]);
+        
+        $user = User::find($userId);
 
         // --- 新增：调试用户对象 ---
         $this->debugLog("User object retrieved", [
@@ -334,22 +367,33 @@ class AuthController extends Controller
             'user_is_null' => is_null($user),
             'user_id' => $user ? $user->id : null,
             'user_email' => $user ? $user->email : null,
+            'user_data' => $user ? $user->toArray() : null,
         ]);
         // --- 结束新增 ---
 
         if (!$user) {
-            $this->debugLog("FATAL ERROR: Authenticated user not found.");
+            $this->debugLog("FATAL ERROR: Authenticated user not found in database", [
+                'requested_user_id' => $userId,
+            ]);
             abort(500, '用户未认证或认证已过期，请重新登录');
         }
 
         $newEmail = $request->input('new_email');
         $emailCode = $request->input('email_code');
 
+        $this->debugLog("Processing email change request", [
+            'user_id' => $user->id,
+            'current_email' => $user->email,
+            'new_email' => $newEmail,
+            'email_code_provided' => !empty($emailCode),
+        ]);
+
         // 检查新邮箱是否与旧邮箱相同
         if ($user->email === $newEmail) {
             $this->debugLog("ERROR: New email is the same as current email.", [
                 'user_id' => $user->id,
-                'email' => $newEmail,
+                'current_email' => $user->email,
+                'new_email' => $newEmail,
             ]);
             abort(500, '新邮箱地址不能与当前邮箱地址相同');
         }
@@ -358,6 +402,7 @@ class AuthController extends Controller
         $emailVerifyEnabled = (bool)config('v2board.email_verify', 0);
         $this->debugLog("Email verification status", [
             'enabled' => $emailVerifyEnabled,
+            'config_value' => config('v2board.email_verify', 0),
         ]);
 
         if ($emailVerifyEnabled) {
@@ -377,8 +422,10 @@ class AuthController extends Controller
                 'user_id' => $user->id,
                 'new_email' => $newEmail,
                 'cache_key' => $cacheKey,
+                'cached_code_exists' => !is_null($cachedCode),
                 'cached_code' => $cachedCode,
                 'provided_code' => $emailCode,
+                'codes_match' => (string)$cachedCode === (string)$emailCode,
             ]);
 
             if ((string)$cachedCode !== (string)$emailCode) {
@@ -387,6 +434,8 @@ class AuthController extends Controller
                     'new_email' => $newEmail,
                     'cached_code' => $cachedCode,
                     'provided_code' => $emailCode,
+                    'cached_code_type' => gettype($cachedCode),
+                    'provided_code_type' => gettype($emailCode),
                 ]);
                 abort(500, '邮箱验证码不正确或已过期');
             }
@@ -416,16 +465,18 @@ class AuthController extends Controller
             $this->debugLog("ERROR: Failed to update user email in database.", [
                 'user_id' => $user->id,
                 'new_email' => $newEmail,
+                'user_data_before_save' => $user->toArray(),
             ]);
             abort(500, '邮箱地址更新失败');
         }
 
         // 如果开启了邮箱验证并且验证码已使用，则清除验证码缓存
         if ($emailVerifyEnabled && $cachedCode) {
-            Cache::forget($cacheKey);
+            $forgetResult = Cache::forget($cacheKey);
             $this->debugLog("INFO: Used email verification code cleared from cache.", [
                 'user_id' => $user->id,
                 'cache_key' => $cacheKey,
+                'forget_result' => $forgetResult,
             ]);
         }
 
@@ -439,6 +490,7 @@ class AuthController extends Controller
         
         $this->debugLog("SUCCESS: User email updated.", [
             'user_id' => $user->id,
+            'old_email' => $user->getOriginal('email'),
             'new_email' => $newEmail,
         ]);
 
@@ -456,9 +508,16 @@ class AuthController extends Controller
         $log_prefix = "[" . date('Y-m-d H:i:s') . "] [changeEmail] ";
         $log_message = $log_prefix . $message;
         if (!empty($data)) {
-            $log_message .= " | Data: " . json_encode($data, JSON_UNESCAPED_UNICODE);
+            $log_message .= " | Data: " . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         }
         $log_message .= PHP_EOL;
+        
+        // 确保日志目录存在
+        $logDir = storage_path('logs');
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0755, true);
+        }
+        
         error_log($log_message, 3, storage_path('logs/debug.log'));
         flush();
     }
