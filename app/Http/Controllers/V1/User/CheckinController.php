@@ -79,12 +79,14 @@ class CheckinController extends Controller
                 abort(500, '不支持的签到类型');
         }
         
-        if (!$result['success']) {
+        if (!$result['data']) {
             abort(500, $result['message']);
         }
         
         return response([
-            'data' => $result
+            'data' => $result['data'],
+            'message' => $result['message'],
+            'traffic' => $result['traffic']
         ]);
     }
 }

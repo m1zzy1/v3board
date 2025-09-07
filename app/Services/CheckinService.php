@@ -34,7 +34,6 @@ class CheckinService
 
         // 返回结果
         return [
-            'success' => true,
             'data' => true,
             'message' => '签到成功！获得 +' . Helper::trafficConvert($traffic) . ' 流量 (10MB-1GB随机)',
             'traffic' => $traffic
@@ -88,7 +87,6 @@ class CheckinService
         // 返回结果
         $sign = $traffic >= 0 ? '获得 +' : '扣除 ';
         return [
-            'success' => true,
             'data' => true,
             'message' => '运气签到成功！可能获得-' . Helper::trafficConvert($inputBytes) . '到+' . Helper::trafficConvert($inputBytes) . '流量，本次' . $sign . Helper::trafficConvert(abs($traffic)) . '流量',
             'traffic' => $traffic
@@ -108,14 +106,14 @@ class CheckinService
     {
         // 检查用户是否有有效订阅
         $subscriptionCheck = $this->checkUserSubscription($user);
-        if (!$subscriptionCheck['success']) {
+        if (!$subscriptionCheck['data']) {
             return $subscriptionCheck;
         }
 
         // 使用正则表达式分离数值和单位
         if (!preg_match('/^(\d+)(MB|GB)$/i', $input, $matches)) {
             return [
-                'success' => false,
+                'data' => false,
                 'message' => '参数格式错误，请使用格式：数值+单位，例如：100GB'
             ];
         }
@@ -138,7 +136,6 @@ class CheckinService
         // 检查用户是否有订阅计划
         if ($user->plan_id === null) {
             return [
-                'success' => false,
                 'data' => false,
                 'message' => '您没有订阅任何套餐，无法进行签到'
             ];
@@ -147,14 +144,13 @@ class CheckinService
         // 检查订阅是否过期
         if ($user->expired_at === null || $user->expired_at <= time()) {
             return [
-                'success' => false,
                 'data' => false,
                 'message' => '您的订阅已过期，无法进行签到'
             ];
         }
 
         return [
-            'success' => true
+            'data' => true
         ];
     }
 }
