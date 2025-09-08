@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Utils\CacheKey;
 use App\Utils\Helper;
+use Illuminate\Support\Facades\Cache;
 
 class CheckinService
 {
@@ -16,13 +18,18 @@ class CheckinService
      */
     public function standardCheckin(User $user)
     {
+        // 检查用户今日是否已签到
+        $checkinCheck = $this->checkUserCheckinStatus($user);
+        if (!$checkinCheck['data']) {
+            return $checkinCheck;
+        }
+
         // 检查用户是否有有效订阅
         $subscriptionCheck = $this->checkUserSubscription($user);
         if (!$subscriptionCheck['data']) {
             return $subscriptionCheck;
         }
 
-        // 开发阶段暂时不限制每日签到次数
         // 生成随机流量 (10MB - 1GB)
         $min = 10 * 1024 * 1024; // 10MB
         $max = 1024 * 1024 * 1024; // 1GB
@@ -31,6 +38,9 @@ class CheckinService
         // 更新用户流量
         $user->transfer_enable += $traffic;
         $user->save();
+
+        // 记录用户签到状态
+        $this->setUserCheckinStatus($user);
 
         // 返回结果
         return [
@@ -51,6 +61,12 @@ class CheckinService
      */
     public function luckyCheckin(User $user, float $value, string $unit = 'GB')
     {
+        // 检查用户今日是否已签到
+        $checkinCheck = $this->checkUserCheckinStatus($user);
+        if (!$checkinCheck['data']) {
+            return $checkinCheck;
+        }
+
         // 检查用户是否有有效订阅
         $subscriptionCheck = $this->checkUserSubscription($user);
         if (!$subscriptionCheck['data']) {
@@ -83,6 +99,9 @@ class CheckinService
         // 更新用户流量
         $user->transfer_enable += $traffic;
         $user->save();
+
+        // 记录用户签到状态
+        $this->setUserCheckinStatus($user);
 
         // 返回结果
         $sign = $traffic >= 0 ? '获得 +' : '扣除 ';
@@ -152,5 +171,40 @@ class CheckinService
         return [
             'data' => true
         ];
+    }
+
+    /**
+     * 检查用户今日是否已签到
+     *
+     * @param User $user
+     * @return array
+     */
+    private function checkUserCheckinStatus(User $user)
+    {
+        $cacheKey = CacheKey::get('USER_CHECKIN_STATUS', $user->id . '_' . date('Ymd'));
+        if (Cache::has($cacheKey)) {
+            return [
+                'data' => false,
+                'message' => '您已签到过，请勿重新签到'
+            ];
+        }
+
+        return [
+            'data' => true
+        ];
+    }
+
+    /**
+     * 记录用户签到状态
+     *
+     * @param User $user
+     * @return void
+     */
+    private function setUserCheckinStatus(User $user)
+    {
+        $cacheKey = CacheKey::get('USER_CHECKIN_STATUS', $user->id . '_' . date('Ymd'));
+        // 设置缓存过期时间为当天剩余时间
+        $seconds = strtotime('tomorrow') - time();
+        Cache::put($cacheKey, true, $seconds);
     }
 }
