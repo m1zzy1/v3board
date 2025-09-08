@@ -79,12 +79,16 @@ class CheckinController extends Controller
                 abort(500, '不支持的签到类型');
         }
         
+        // 如果签到失败，仍然返回正常的JSON响应，而不是500错误
         if (!$result['data']) {
-            abort(500, $result['message']);
+            return response([
+                'data' => false,
+                'message' => $result['message']
+            ]);
         }
         
         return response([
-            'data' => $result['data'],
+            'data' => true,
             'message' => $result['message'],
             'traffic' => $result['traffic']
         ]);
