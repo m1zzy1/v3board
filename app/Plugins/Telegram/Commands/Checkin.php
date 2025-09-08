@@ -37,7 +37,7 @@ class Checkin extends Telegram
         // 执行普通签到
         $result = $this->checkinService->standardCheckin($user);
 
-        if ($result['success']) {
+        if ($result['data']) {
             $this->telegramService->sendReply($message->chat_id, "✅ " . $result['message'], 'markdown');
         } else {
             $this->telegramService->sendReply($message->chat_id, "❌ " . $result['message']);

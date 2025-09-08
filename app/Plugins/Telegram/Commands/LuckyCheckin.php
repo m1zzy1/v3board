@@ -76,7 +76,7 @@ class LuckyCheckin extends Telegram
         // 执行运气签到
         $result = $this->checkinService->luckyCheckinFromString($user, $input);
 
-        if ($result['success']) {
+        if ($result['data']) {
             $this->telegramService->sendReply($message->chat_id, "✅ " . $result['message'], 'markdown');
         } else {
             $this->telegramService->sendReply($message->chat_id, "❌ " . $result['message']);
