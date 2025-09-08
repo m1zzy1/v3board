@@ -234,7 +234,7 @@ class OAuthController extends Controller
 
             // --- 8. 调用内部登录/注册逻辑 ---
             Log::info("Calling internal OAuth login/register logic", ['email' => $email]);
-            $result = $this->oauthLoginInternal($email, $name, $inviteCode);
+            $result = $this->oauthLoginInternal($email, $name, $inviteCode, $request);
             Log::info("Internal OAuth login/register result", ['success' => $result['success'] ?? false]);
 
             if ($result['success']) {
@@ -349,9 +349,10 @@ class OAuthController extends Controller
      * @param string $email
      * @param string $name (Google 用户名)
      * @param string $inviteCode (可选, 前端传入的邀请码)
+     * @param Request $request (可选, 请求对象用于获取 IP 和 User Agent)
      * @return array ['success' => bool, 'token' => string|null, 'message' => string|null, 'plain_password' => string|null]
      */
-    private function oauthLoginInternal($email, $name, $inviteCode = '')
+    private function oauthLoginInternal($email, $name, $inviteCode = '', $request = null)
     {
         // --- 在 try 块开始时记录入口信息 ---
         safe_error_log("oauthLoginInternal called with: email={$email}, name={$name}, inviteCode={$inviteCode}", 'oauth_internal');
@@ -480,8 +481,8 @@ class OAuthController extends Controller
             safe_error_log("Generating auth token for user ID: {$user->id}", 'oauth_internal');
             $authService = new AuthService($user);
             // 我们需要完整的 auth_data，所以直接生成
-            // 注意：generateAuthData 需要一个 Request 对象，这里传递一个空的模拟请求
-            $authData = $authService->generateAuthData(new Request());
+            // 注意：generateAuthData 需要一个 Request 对象来获取 IP 和 User Agent
+            $authData = $authService->generateAuthData($request);
             $token = $authData['token'] ?? null;
 
             if (!$token) {
@@ -627,7 +628,7 @@ class OAuthController extends Controller
         // 使用 try...catch 捕获 oauthLoginInternal 中可能抛出的异常
         $this->debugLog("Step 5: Calling oauthLoginInternal");
         try {
-            $result = $this->oauthLoginInternal($email, $name);
+            $result = $this->oauthLoginInternal($email, $name, '', $request);
             $this->debugLog("Step 5: oauthLoginInternal returned");
         } catch (\Exception $e) {
             $error_msg = "Step 5 EXCEPTION in oauthLoginInternal: " . $e->getMessage();
