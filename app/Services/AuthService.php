@@ -26,10 +26,14 @@ class AuthService
             'id' => $this->user->id,
             'session' => $guid,
         ], config('app.key'), 'HS256');
+        
+        // 检查是否是 Telegram 登录（通过请求头判断）
+        $isTelegramLogin = $request->header('X-Telegram-Login') === 'true';
+        
         self::addSession($this->user->id, $guid, [
-            'ip' => $request->ip(),
+            'ip' => $isTelegramLogin ? 'Telegram登录' : ($request->ip() ?: '未知IP'),
             'login_at' => time(),
-            'ua' => $request->userAgent(),
+            'ua' => $request->userAgent() ?: ($isTelegramLogin ? 'Telegram Bot' : '未知设备'),
             'auth_data' => $authData
         ]);
         return [

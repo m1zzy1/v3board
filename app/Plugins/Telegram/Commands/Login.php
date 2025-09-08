@@ -53,10 +53,12 @@ class Login extends Telegram {
 
         // 直接调用 OAuthController 的 handleTelegramBotCallback 方法
         try {
-            // 创建一个模拟的 Request 对象
+            // 创建一个模拟的 Request 对象，并添加 Telegram 标识
             $request = new Request();
             $request->setMethod('POST');
             $request->request->add($requestData);
+            // 添加 Telegram 登录标识到请求中
+            $request->headers->set('X-Telegram-Login', 'true');
 
             // 创建 OAuthController 实例并调用 handleTelegramBotCallback
             $oauthController = new OAuthController();
@@ -96,10 +98,12 @@ class Login extends Telegram {
 
         // 直接调用 OAuthController 的 handleTelegramBotCallback 方法
         try {
-            // 创建一个模拟的 Request 对象
+            // 创建一个模拟的 Request 对象，并添加 Telegram 标识
             $request = new Request();
             $request->setMethod('POST');
             $request->request->add($requestData);
+            // 添加 Telegram 登录标识到请求中
+            $request->headers->set('X-Telegram-Login', 'true');
 
             // 创建 OAuthController 实例并调用 handleTelegramBotCallback
             $oauthController = new OAuthController();
