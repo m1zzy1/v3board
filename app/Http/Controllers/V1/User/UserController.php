@@ -463,4 +463,43 @@ class UserController extends Controller
             'data' => $url
         ]);
     }
+
+    public function deleteAccount(Request $request)
+    {
+        // 获取当前用户
+        $user = User::find($request->user['id']);
+        if (!$user) {
+            abort(500, __('The user does not exist'));
+        }
+        
+        DB::beginTransaction();
+        try {
+            // 清除会话
+            $authService = new AuthService($user);
+            $authService->removeAllSession();
+            
+            // 删除关联数据（复用现有逻辑）
+            Order::where('user_id', $user->id)->delete();
+            User::where('invite_user_id', $user->id)->update(['invite_user_id' => null]);
+            InviteCode::where('user_id', $user->id)->delete();
+            
+            $tickets = Ticket::where('user_id', $user->id)->get();
+            foreach($tickets as $ticket) {
+                TicketMessage::where('ticket_id', $ticket->id)->delete();
+            }
+            Ticket::where('user_id', $user->id)->delete();
+            
+            // 删除用户
+            $user->delete();
+            
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            abort(500, __('Failed to delete account'));
+        }
+        
+        return response([
+            'data' => true
+        ]);
+    }
 }
