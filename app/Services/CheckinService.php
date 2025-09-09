@@ -93,6 +93,17 @@ class CheckinService
         $multiplier = strtoupper($unit) === 'GB' ? 1024 * 1024 * 1024 : 1024 * 1024;
         $inputBytes = (int)($value * $multiplier);
 
+        // 检查输入值是否超过用户剩余流量
+        $usedTraffic = $user->u + $user->d; // 已用流量
+        $remainingTraffic = $user->transfer_enable - $usedTraffic; // 剩余流量
+        
+        if ($inputBytes > $remainingTraffic) {
+            return [
+                'data' => false,
+                'message' => '输入的流量值不能超过您当前的剩余流量 (' . Helper::trafficConvert($remainingTraffic) . ')'
+            ];
+        }
+
         // 生成随机流量 (-inputBytes 到 +inputBytes)
         $traffic = rand(-$inputBytes, $inputBytes);
 
