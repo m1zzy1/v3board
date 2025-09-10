@@ -88,7 +88,7 @@ class CheckinService
         // 检查输入值是否超过用户剩余流量
         $usedTraffic = $user->u + $user->d; // 已用流量
         $remainingTraffic = $user->transfer_enable - $usedTraffic; // 剩余流量
-        
+
         // 检查输入值是否合法 (1-剩余流量)
         if ($value < 1 || $inputBytes > $remainingTraffic) {
             return [
@@ -161,14 +161,6 @@ class CheckinService
             return [
                 'data' => false,
                 'message' => '您没有订阅任何套餐，无法进行签到'
-            ];
-        }
-
-        // 检查订阅是否过期
-        if ($user->expired_at === null || $user->expired_at <= time()) {
-            return [
-                'data' => false,
-                'message' => '您的订阅已过期，无法进行签到'
             ];
         }
 
