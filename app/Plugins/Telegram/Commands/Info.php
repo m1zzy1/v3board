@@ -3,6 +3,7 @@
 namespace App\Plugins\Telegram\Commands;
 
 use App\Models\User;
+use App\Models\Plan;
 use App\Plugins\Telegram\Telegram;
 use App\Utils\Helper;
 
@@ -19,6 +20,9 @@ class Info extends Telegram {
             $telegramService->sendMessage($message->chat_id, '没有查询到您的用户信息，请先绑定账号', 'markdown');
             return;
         }
+        
+        // 获取套餐信息
+        $plan = Plan::find($user->plan_id);
         
         // 注册日期
         $registerDate = date('Y-m-d', $user->created_at);
@@ -46,6 +50,9 @@ class Info extends Telegram {
         $text = "📊 **套餐信息和流量使用情况**\n";
         $text .= "———————————————\n";
         $text .= "📝 注册日期：`{$registerDate}`\n";
+        if ($plan) {
+            $text .= "🏷️ 套餐名称：`{$plan->name}`\n";
+        }
         $text .= $planInfo;
         $text .= "📊 计划流量：`{$transferEnable}`\n";
         $text .= "📈 已用流量：`{$used}`\n";
