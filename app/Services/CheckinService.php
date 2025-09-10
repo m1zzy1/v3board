@@ -73,14 +73,6 @@ class CheckinService
             return $subscriptionCheck;
         }
 
-        // 检查输入值是否合法 (1-1000)
-        if ($value < 1 || $value > 1000) {
-            return [
-                'data' => false,
-                'message' => '输入的数值必须在 1-1000 之间'
-            ];
-        }
-
         // 检查单位是否合法
         if (!in_array(strtoupper($unit), ['MB', 'GB'])) {
             return [
@@ -97,10 +89,11 @@ class CheckinService
         $usedTraffic = $user->u + $user->d; // 已用流量
         $remainingTraffic = $user->transfer_enable - $usedTraffic; // 剩余流量
         
-        if ($inputBytes > $remainingTraffic) {
+        // 检查输入值是否合法 (1-剩余流量)
+        if ($value < 1 || $inputBytes > $remainingTraffic) {
             return [
                 'data' => false,
-                'message' => '输入的流量值不能超过您当前的剩余流量 (' . Helper::trafficConvert($remainingTraffic) . ')'
+                'message' => '输入的数值必须在 1 到您当前剩余流量 (' . Helper::trafficConvert($remainingTraffic) . ') 之间'
             ];
         }
 
