@@ -38,7 +38,10 @@ class MysqlLoggerHandler extends AbstractProcessingHandler
                 $log
             );
         }catch (\Exception $e){
-            Log::channel('daily')->error($e->getMessage().$e->getFile().$e->getTraceAsString());
+            // 只有在 APP_DEBUG 为 true 时才写入日志文件
+            if (config('app.debug')) {
+                Log::channel('daily')->error($e->getMessage().$e->getFile().$e->getTraceAsString());
+            }
         }
     }
 }
