@@ -35,7 +35,7 @@ class EPay {
             'money' => $order['total_amount'] / 100,
             'name' => $order['trade_no'],
             'notify_url' => $order['notify_url'],
-            'return_url' => $_SERVER['HTTP_REFERER'] . '#/payment/?trade_no' . $order['trade_no'],
+            'return_url' => $_SERVER['HTTP_REFERER'] . '#/payment/?trade_no=' . $order['trade_no'],
             'out_trade_no' => $order['trade_no'],
             'pid' => $this->config['pid']
         ];
