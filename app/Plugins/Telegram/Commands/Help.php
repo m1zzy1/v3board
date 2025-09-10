@@ -24,6 +24,7 @@ class Help extends Telegram
         $commands = [
             '/bind' => '将Telegram账号绑定到网站',
             '/unbind' => '将Telegram账号从网站解绑',
+            '/info' => '查询套餐信息和流量使用情况',
             '/traffic' => '查询流量信息',
             '/getlatesturl' => '获取最新的站点地址',
             '/sign1' => '普通签到，随机获得10MB-1GB流量',
