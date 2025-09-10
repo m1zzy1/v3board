@@ -23,6 +23,11 @@ use ReCaptcha\ReCaptcha;
 class AuthController extends Controller
 {
     private function debugLog($message, $data = []) {
+        // 只有在 APP_DEBUG 为 true 时才生成日志
+        if (!config('app.debug')) {
+            return;
+        }
+        
         $log_prefix = "[" . date('Y-m-d H:i:s') . "] [changeEmail] ";
         $log_message = $log_prefix . $message;
         if (!empty($data)) {

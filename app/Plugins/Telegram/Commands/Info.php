@@ -21,6 +21,12 @@ class Info extends Telegram {
             return;
         }
         
+        // 检查用户是否有订阅
+        if (!$user->plan_id || ($user->expired_at !== null && $user->expired_at < time())) {
+            $telegramService->sendMessage($message->chat_id, '您还未购买套餐，请先购买套餐', 'markdown');
+            return;
+        }
+        
         // 获取套餐信息
         $plan = Plan::find($user->plan_id);
         

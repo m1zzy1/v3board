@@ -1000,6 +1000,11 @@ class OAuthController extends Controller
      * 使用 error_log 确保即使在 Laravel 日志系统出问题时也能记录
      */
     private function debugLog($message, $data = []) {
+        // 只有在 APP_DEBUG 为 true 时才生成日志
+        if (!config('app.debug')) {
+            return;
+        }
+        
         $log_prefix = "[" . date('Y-m-d H:i:s') . "] [handleTelegramBotCallback] ";
         $log_message = $log_prefix . $message;
         if (!empty($data)) {
