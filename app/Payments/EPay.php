@@ -46,7 +46,7 @@ class EPay {
         $params['sign_type'] = 'MD5';
         return [
             'type' => 1, // 0:qrcode 1:url
-            'data' => $this->config['url'] . '/submit.php?' . http_build_query($params)
+            'data' => $order['return_url'] . '/submit.php?' . http_build_query($params)
         ];
     }
 
