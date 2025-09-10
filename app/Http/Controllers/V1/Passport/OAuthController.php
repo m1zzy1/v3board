@@ -33,6 +33,11 @@ if (!function_exists('base64url_decode')) {
 // 安全日志函数
 if (!function_exists('safe_error_log')) {
     function safe_error_log($message, $file_suffix = 'oauth_debug') {
+        // 只有在 APP_DEBUG 为 true 时才生成日志
+        if (!config('app.debug')) {
+            return;
+        }
+        
         $logDir = storage_path('logs');
         if (!is_dir($logDir)) {
             mkdir($logDir, 0755, true);
@@ -121,7 +126,9 @@ class OAuthController extends Controller
         $errorMessage = null;      // 错误信息
 
         try {
-            Log::info("Google OAuth Callback initiated", ['query_params' => $request->all()]);
+            if (config('app.debug')) {
+                Log::info("Google OAuth Callback initiated", ['query_params' => $request->all()]);
+            }
 
             // --- 2. 从 URL 查询参数或 Google state 参数获取 redirect URL ---
             // Google 推荐使用 state 参数来防止 CSRF，我们可以借用它来传递 redirect URL
@@ -129,13 +136,17 @@ class OAuthController extends Controller
             if (!empty($state)) {
                 // 解码从 state 传来的 redirect URL
                 $frontendCallbackUrl = base64url_decode($state);
-                Log::info("Retrieved frontend callback URL from 'state' parameter", ['decoded_url' => $frontendCallbackUrl]);
+                if (config('app.debug')) {
+                    Log::info("Retrieved frontend callback URL from 'state' parameter", ['decoded_url' => $frontendCallbackUrl]);
+                }
             }
 
             // 如果 state 里没有，或者解码失败，可以 fallback 到一个默认 URL（不太理想）
             if (empty($frontendCallbackUrl)) {
                 $errorMsg = "No frontend callback URL found in 'state' parameter.";
-                Log::warning($errorMsg);
+                if (config('app.debug')) {
+                    Log::warning($errorMsg);
+                }
                 $errorMessage = $errorMsg;
                 // 没有前端 URL，无法跳转，直接抛出异常到 catch 块
                 throw new \Exception($errorMsg);
@@ -147,7 +158,9 @@ class OAuthController extends Controller
 
             if (!$googleClientId || !$googleClientSecret) {
                 $errorMsg = "Google OAuth credentials (Client ID or Secret) are not configured.";
-                Log::error($errorMsg);
+                if (config('app.debug')) {
+                    Log::error($errorMsg);
+                }
                 $errorMessage = $errorMsg;
                 throw new \Exception($errorMsg);
             }
@@ -156,7 +169,9 @@ class OAuthController extends Controller
             $authorizationCode = $request->input('code');
             if (!$authorizationCode) {
                 $errorMsg = "Google OAuth callback missing 'code' parameter.";
-                Log::warning($errorMsg, ['query_params' => $request->all()]);
+                if (config('app.debug')) {
+                    Log::warning($errorMsg, ['query_params' => $request->all()]);
+                }
                 $errorMessage = $errorMsg;
                 throw new \Exception($errorMsg);
             }
@@ -164,7 +179,9 @@ class OAuthController extends Controller
             // --- 5. 使用 Authorization Code 换取 Access Token ---
             $httpClient = new GuzzleClient();
             try {
-                Log::info("Exchanging code for token", ['code' => $authorizationCode]);
+                if (config('app.debug')) {
+                    Log::info("Exchanging code for token", ['code' => $authorizationCode]);
+                }
                 $tokenResponse = $httpClient->post('https://oauth2.googleapis.com/token', [
                     'form_params' => [
                         'client_id' => $googleClientId,
@@ -176,7 +193,9 @@ class OAuthController extends Controller
                     ]
                 ]);
                 $tokenData = json_decode($tokenResponse->getBody(), true);
-                Log::info("Token exchange successful", ['access_token_exists' => isset($tokenData['access_token'])]);
+                if (config('app.debug')) {
+                    Log::info("Token exchange successful", ['access_token_exists' => isset($tokenData['access_token'])]);
+                }
             } catch (RequestException $e) {
                 $errorMessage = 'Google OAuth Token Exchange HTTP request failed.';
                 $context = ['exception' => $e->getMessage()];
@@ -184,7 +203,9 @@ class OAuthController extends Controller
                     $context['response_body'] = $e->getResponse()->getBody()->getContents();
                     $context['response_status'] = $e->getResponse()->getStatusCode();
                 }
-                Log::error($errorMessage, $context);
+                if (config('app.debug')) {
+                    Log::error($errorMessage, $context);
+                }
                 $errorMessage = 'Network error during Google token exchange.';
                 throw new \Exception($errorMessage); // 抛出到外层 catch
             }
@@ -192,21 +213,27 @@ class OAuthController extends Controller
             $accessToken = $tokenData['access_token'] ?? null;
             if (!$accessToken) {
                 $errorMsg = "Failed to obtain access token from Google.";
-                Log::error($errorMsg, ['token_response' => $tokenData]);
+                if (config('app.debug')) {
+                    Log::error($errorMsg, ['token_response' => $tokenData]);
+                }
                 $errorMessage = $errorMsg;
                 throw new \Exception($errorMsg);
             }
 
             // --- 6. 使用 Access Token 获取用户信息 ---
             try {
-                Log::info("Fetching user info with access token");
+                if (config('app.debug')) {
+                    Log::info("Fetching user info with access token");
+                }
                 $userResponse = $httpClient->get('https://www.googleapis.com/oauth2/v2/userinfo', [
                     'headers' => [
                         'Authorization' => 'Bearer ' . $accessToken
                     ]
                 ]);
                 $googleUserData = json_decode($userResponse->getBody(), true);
-                Log::info("User info fetched", ['email' => $googleUserData['email'] ?? 'N/A']);
+                if (config('app.debug')) {
+                    Log::info("User info fetched", ['email' => $googleUserData['email'] ?? 'N/A']);
+                }
             } catch (RequestException $e) {
                 $errorMessage = 'Google OAuth User Info HTTP request failed.';
                 $context = ['exception' => $e->getMessage()];
@@ -214,7 +241,9 @@ class OAuthController extends Controller
                     $context['response_body'] = $e->getResponse()->getBody()->getContents();
                     $context['response_status'] = $e->getResponse()->getStatusCode();
                 }
-                Log::error($errorMessage, $context);
+                if (config('app.debug')) {
+                    Log::error($errorMessage, $context);
+                }
                 $errorMessage = 'Network error while fetching user info from Google.';
                 throw new \Exception($errorMessage); // 抛出到外层 catch
             }
@@ -224,7 +253,9 @@ class OAuthController extends Controller
 
             if (!$email) {
                 $errorMsg = "Google did not provide an email address.";
-                Log::warning($errorMsg, ['google_user_data' => $googleUserData]);
+                if (config('app.debug')) {
+                    Log::warning($errorMsg, ['google_user_data' => $googleUserData]);
+                }
                 $errorMessage = $errorMsg;
                 throw new \Exception($errorMsg);
             }
@@ -233,18 +264,26 @@ class OAuthController extends Controller
             $inviteCode = $code ?? ''; // TODO: Implement proper invite code retrieval if needed
 
             // --- 8. 调用内部登录/注册逻辑 ---
-            Log::info("Calling internal OAuth login/register logic", ['email' => $email]);
+            if (config('app.debug')) {
+                Log::info("Calling internal OAuth login/register logic", ['email' => $email]);
+            }
             $result = $this->oauthLoginInternal($email, $name, $inviteCode, $request);
-            Log::info("Internal OAuth login/register result", ['success' => $result['success'] ?? false]);
+            if (config('app.debug')) {
+                Log::info("Internal OAuth login/register result", ['success' => $result['success'] ?? false]);
+            }
 
             if ($result['success']) {
                 $token = $result['token'];
                 $authData = $result['auth_data'];
-                Log::info("Login/Register successful, got token", ['token' => $token]);
+                if (config('app.debug')) {
+                    Log::info("Login/Register successful, got token", ['token' => $token]);
+                }
                 // 成功，token 已准备好，errorMessage 为 null
             } else {
                 $errorMessage = $result['message'] ?? 'Unknown error during Google login/registration.';
-                Log::error("Login/Register failed", ['error' => $errorMessage, 'email' => $email]);
+                if (config('app.debug')) {
+                    Log::error("Login/Register failed", ['error' => $errorMessage, 'email' => $email]);
+                }
                 throw new \Exception($errorMessage); // 抛出到外层 catch
             }
 
@@ -254,7 +293,9 @@ class OAuthController extends Controller
             if (!$errorMessage) {
                 $errorMessage = 'An internal error occurred during Google authentication.';
             }
-            Log::error("Google OAuth Callback Error (caught): " . $e->getMessage(), ['exception' => $e]);
+            if (config('app.debug')) {
+                Log::error("Google OAuth Callback Error (caught): " . $e->getMessage(), ['exception' => $e]);
+            }
             // token 保持为 null
             // errorMessage 已经在上面设置了
 
@@ -262,11 +303,13 @@ class OAuthController extends Controller
             // --- 9. 唯一出口：执行最终跳转 ---
             // 无论 try 成功还是 catch 捕获到异常，都必须走到这里
 
-            Log::info("Preparing final redirect", [
-                'frontend_url' => $frontendCallbackUrl,
-                'token_provided' => !empty($token),
-                'error_message' => $errorMessage
-            ]);
+            if (config('app.debug')) {
+                Log::info("Preparing final redirect", [
+                    'frontend_url' => $frontendCallbackUrl,
+                    'token_provided' => !empty($token),
+                    'error_message' => $errorMessage
+                ]);
+            }
 
             // --- 10. 构造最终跳转 URL ---
             if (!empty($frontendCallbackUrl)) {
@@ -846,12 +889,16 @@ class OAuthController extends Controller
         // --- 使用系统配置的 Telegram Bot Token ---
         $token = config('v2board.telegram_bot_token');
         if (!$token) {
-            Log::error("Telegram Bot Token not configured in v2board config (config/v2board.php or .env)");
+            if (config('app.debug')) {
+                Log::error("Telegram Bot Token not configured in v2board config (config/v2board.php or .env)");
+            }
             return false;
         }
 
         if (!isset($data['hash'])) {
-            Log::warning("Telegram auth data missing 'hash'.", ['data' => $data]);
+            if (config('app.debug')) {
+                Log::warning("Telegram auth data missing 'hash'.", ['data' => $data]);
+            }
             return false;
         }
 
@@ -867,18 +914,22 @@ class OAuthController extends Controller
         $hash = hash_hmac('sha256', $data_check_string, $secret_key, false);
 
         if (strcmp($hash, $check_hash) !== 0) {
-            Log::warning("Telegram auth hash mismatch.", [
-                'received_hash' => $check_hash,
-                'calculated_hash' => $hash,
-                'data' => $data,
-                'data_check_string' => $data_check_string // For debugging
-            ]);
+            if (config('app.debug')) {
+                Log::warning("Telegram auth hash mismatch.", [
+                    'received_hash' => $check_hash,
+                    'calculated_hash' => $hash,
+                    'data' => $data,
+                    'data_check_string' => $data_check_string // For debugging
+                ]);
+            }
             return false;
         }
 
         // 可选：检查 auth_date 是否过期 (例如 1 天内)
         if ((time() - ($data['auth_date'] ?? 0)) > 86400) {
-            Log::warning("Telegram auth data is too old.", ['auth_date' => $data['auth_date'] ?? null]);
+            if (config('app.debug')) {
+                Log::warning("Telegram auth data is too old.", ['auth_date' => $data['auth_date'] ?? null]);
+            }
             return false;
         }
 
@@ -894,17 +945,23 @@ class OAuthController extends Controller
     {
         $this->debugLog("checkTelegramLogin START");
         
-        \Log::info("=== DEBUG checkTelegramLogin START ===");
+        if (config('app.debug')) {
+            Log::info("=== DEBUG checkTelegramLogin START ===");
+        }
         
         $this->debugLog("checkTelegramLogin Step 1: Getting code from request");
         $code = $request->input('code'); // 这里的 code 就是前端获取到的 hash 值
         $this->debugLog("checkTelegramLogin Step 1: Got code", ['code' => $code]);
         $this->debugLog("EXACT_CODE_RECEIVED_FROM_FRONTEND", ['code' => $code]);
-        \Log::info("EXACT_CODE_RECEIVED_FROM_FRONTEND", ['code' => $code]);
+        if (config('app.debug')) {
+            Log::info("EXACT_CODE_RECEIVED_FROM_FRONTEND", ['code' => $code]);
+        }
         
         if (!$code) {
             $this->debugLog("checkTelegramLogin Step 1 ERROR: code is required");
-            \Log::warning("Telegram login check failed: code is required");
+            if (config('app.debug')) {
+                Log::warning("Telegram login check failed: code is required");
+            }
             return response()->json(['error' => 'code is required'], 400);
         }
 
@@ -913,7 +970,9 @@ class OAuthController extends Controller
         $cacheKey = CacheKey::get('TELEGRAM_LOGIN_RESULT', $code);
         $this->debugLog("checkTelegramLogin Step 2: Cache key constructed", ['cache_key' => $cacheKey]);
         $this->debugLog("EXACT_CACHE_KEY_FOR_CHECKING", ['cache_key' => $cacheKey]);
-        \Log::info("EXACT_CACHE_KEY_FOR_CHECKING", ['cache_key' => $cacheKey]);
+        if (config('app.debug')) {
+            Log::info("EXACT_CACHE_KEY_FOR_CHECKING", ['cache_key' => $cacheKey]);
+        }
         
         $this->debugLog("checkTelegramLogin Step 3: Calling Cache::get");
         $loginResultData = Cache::get($cacheKey);
@@ -927,11 +986,13 @@ class OAuthController extends Controller
             'data_found' => !is_null($loginResultData), 
             'data' => $loginResultData
         ]);
-        \Log::info("CACHE_GET_RESULT", [
-            'key' => $cacheKey, 
-            'data_found' => !is_null($loginResultData), 
-            'data' => $loginResultData
-        ]);
+        if (config('app.debug')) {
+            Log::info("CACHE_GET_RESULT", [
+                'key' => $cacheKey, 
+                'data_found' => !is_null($loginResultData), 
+                'data' => $loginResultData
+            ]);
+        }
 
         if (!$loginResultData) {
             // 如果缓存中没有找到，说明：
@@ -939,7 +1000,9 @@ class OAuthController extends Controller
             // 2. hash 已过期或无效
             // 3. 登录已成功并且结果已被取走（因为取走后会删除）
             $this->debugLog("checkTelegramLogin Step 3: Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
-            \Log::info("Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
+            if (config('app.debug')) {
+                Log::info("Login result not found in cache, returning pending", ['cache_key' => $cacheKey]);
+            }
             return response()->json(['status' => 'pending']); 
         }
 
@@ -950,7 +1013,9 @@ class OAuthController extends Controller
         if (!$userId) {
              // 数据不完整
              $this->debugLog("checkTelegramLogin Step 4 ERROR: Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
-             \Log::warning("Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
+             if (config('app.debug')) {
+                 Log::warning("Telegram login result data is missing user_id", ['cache_key' => $cacheKey, 'data' => $loginResultData]);
+             }
              Cache::forget($cacheKey); // 清除不完整的数据
              return response()->json(['error' => 'Login result data is invalid'], 500);
         }
@@ -962,10 +1027,12 @@ class OAuthController extends Controller
                 'user_id' => $userId, 
                 'banned' => $user->banned ?? 'N/A'
             ]);
-            \Log::warning("User not found or banned when checking Telegram login result", [
-                'user_id' => $userId, 
-                'banned' => $user->banned ?? 'N/A'
-            ]);
+            if (config('app.debug')) {
+                Log::warning("User not found or banned when checking Telegram login result", [
+                    'user_id' => $userId, 
+                    'banned' => $user->banned ?? 'N/A'
+                ]);
+            }
             Cache::forget($cacheKey); // 清除无效的登录结果
             return response()->json(['error' => 'User not found or banned'], 403);
         }
@@ -983,10 +1050,12 @@ class OAuthController extends Controller
         // 删除已使用的缓存条目，防止重复使用
         $this->debugLog("checkTelegramLogin Step 6: Removing cache entry", ['cache_key' => $cacheKey]);
         Cache::forget($cacheKey);  
-        \Log::info("Telegram login result retrieved and cache cleared", [
-            'user_id' => $userId, 
-            'cache_key' => $cacheKey
-        ]);
+        if (config('app.debug')) {
+            Log::info("Telegram login result retrieved and cache cleared", [
+                'user_id' => $userId, 
+                'cache_key' => $cacheKey
+            ]);
+        }
 
         $this->debugLog("checkTelegramLogin END: Returning success", ['user_id' => $userId]);
         return response()->json([
