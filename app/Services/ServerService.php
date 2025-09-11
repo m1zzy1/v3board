@@ -277,7 +277,7 @@ class ServerService
         $tmp = array_column($servers, 'sort');
         array_multisort($tmp, SORT_ASC, $servers);
         return array_map(function ($server) use ($showRealAddress) {
-            // 如果不显示真实地址，则隐藏所有地址字段
+            // 如果不显示真实地址，则隐藏所有地址字段并伪装其他字段
             if (!$showRealAddress) {
                 $addressFields = ['host', 'server', 'address'];
                 foreach ($addressFields as $field) {
@@ -285,15 +285,38 @@ class ServerService
                         $server[$field] = 'hidden.example.com';
                     }
                 }
+                
+                // 伪装其他字段
+                $server['port'] = 0;
+                if (isset($server['server_port'])) {
+                    $server['server_port'] = 0;
+                }
+                $server['is_online'] = 1;
+                $server['cache_key'] = '';
+                $server['last_check_at'] = time(); // 设置为当前时间
             }
             
-            if (strpos($server['port'], '-')) {
-                $server['mport'] = (string)$server['port'];
-            } else {
-                $server['port'] = (int)$server['port'];
+            // 处理端口字段
+            if (isset($server['port'])) {
+                if (strpos((string)$server['port'], '-')) {
+                    $server['mport'] = (string)$server['port'];
+                } else {
+                    $server['port'] = (int)$server['port'];
+                }
             }
-            $server['is_online'] = (time() - 300 > $server['last_check_at']) ? 0 : 1;
-            $server['cache_key'] = "{$server['type']}-{$server['id']}-{$server['updated_at']}-{$server['is_online']}";
+            
+            // 处理在线状态
+            if (!isset($server['is_online'])) {
+                $server['is_online'] = (time() - 300 > ($server['last_check_at'] ?? 0)) ? 0 : 1;
+            }
+            
+            // 处理缓存键
+            if (!isset($server['cache_key']) || ($showRealAddress && $server['cache_key'] === '')) {
+                $server['cache_key'] = isset($server['type']) && isset($server['id']) && isset($server['updated_at']) && isset($server['is_online']) 
+                    ? "{$server['type']}-{$server['id']}-{$server['updated_at']}-{$server['is_online']}" 
+                    : '';
+            }
+            
             return $server;
         }, $servers);
     }
