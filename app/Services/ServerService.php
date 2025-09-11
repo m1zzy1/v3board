@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Cache;
 
 class ServerService
 {
-    public function getAvailableVless(User $user):array
+    public function getAvailableVless(User $user, bool $showRealAddress = true):array
     {
         $servers = [];
         $model = ServerVless::orderBy('sort', 'ASC');
@@ -40,6 +40,15 @@ class ServerService
                     $server[$key]['tls_settings']=array_diff_key($server[$key]['tls_settings'],array('private_key'=>''));
                 }
             }
+            
+            // 如果不显示真实地址，则隐藏
+            if (!$showRealAddress && isset($server[$key]['host'])) {
+                $server[$key]['host'] = 'hidden.example.com';
+            }
+            if (!$showRealAddress && isset($server[$key]['server'])) {
+                $server[$key]['server'] = 'hidden.example.com';
+            }
+            
             $servers[] = $server[$key]->toArray();
         }
 
@@ -47,7 +56,7 @@ class ServerService
         return $servers;
     }
 
-    public function getAvailableVmess(User $user):array
+    public function getAvailableVmess(User $user, bool $showRealAddress = true):array
     {
         $servers = [];
         $model = ServerVmess::orderBy('sort', 'ASC');
@@ -64,6 +73,15 @@ class ServerService
             } else {
                 $vmess[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_VMESS_LAST_CHECK_AT', $vmess[$key]['id']));
             }
+            
+            // 如果不显示真实地址，则隐藏
+            if (!$showRealAddress && isset($vmess[$key]['host'])) {
+                $vmess[$key]['host'] = 'hidden.example.com';
+            }
+            if (!$showRealAddress && isset($vmess[$key]['server'])) {
+                $vmess[$key]['server'] = 'hidden.example.com';
+            }
+            
             $servers[] = $vmess[$key]->toArray();
         }
 
@@ -71,7 +89,7 @@ class ServerService
         return $servers;
     }
 
-    public function getAvailableTrojan(User $user):array
+    public function getAvailableTrojan(User $user, bool $showRealAddress = true):array
     {
         $servers = [];
         $model = ServerTrojan::orderBy('sort', 'ASC');
@@ -88,12 +106,21 @@ class ServerService
             } else {
                 $trojan[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_TROJAN_LAST_CHECK_AT', $trojan[$key]['id']));
             }
+            
+            // 如果不显示真实地址，则隐藏
+            if (!$showRealAddress && isset($trojan[$key]['host'])) {
+                $trojan[$key]['host'] = 'hidden.example.com';
+            }
+            if (!$showRealAddress && isset($trojan[$key]['server'])) {
+                $trojan[$key]['server'] = 'hidden.example.com';
+            }
+            
             $servers[] = $trojan[$key]->toArray();
         }
         return $servers;
     }
 
-    public function getAvailableTuic(User $user)
+    public function getAvailableTuic(User $user, bool $showRealAddress = true)
     {
         $availableServers = [];
         $model = ServerTuic::orderBy('sort', 'ASC');
@@ -107,12 +134,21 @@ class ServerService
                 $servers[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_TUIC_LAST_CHECK_AT', $v['parent_id']));
                 $servers[$key]['created_at'] = $servers[$v['parent_id']]['created_at'];
             }
+            
+            // 如果不显示真实地址，则隐藏
+            if (!$showRealAddress && isset($servers[$key]['host'])) {
+                $servers[$key]['host'] = 'hidden.example.com';
+            }
+            if (!$showRealAddress && isset($servers[$key]['server'])) {
+                $servers[$key]['server'] = 'hidden.example.com';
+            }
+            
             $availableServers[] = $servers[$key]->toArray();
         }
         return $availableServers;
     }
 
-    public function getAvailableHysteria(User $user)
+    public function getAvailableHysteria(User $user, bool $showRealAddress = true)
     {
         $availableServers = [];
         $model = ServerHysteria::orderBy('sort', 'ASC');
@@ -127,12 +163,21 @@ class ServerService
                 $servers[$key]['created_at'] = $servers[$v['parent_id']]['created_at'];
             }
             $servers[$key]['server_key'] = Helper::getServerKey($servers[$key]['created_at'], 16);
+            
+            // 如果不显示真实地址，则隐藏
+            if (!$showRealAddress && isset($servers[$key]['host'])) {
+                $servers[$key]['host'] = 'hidden.example.com';
+            }
+            if (!$showRealAddress && isset($servers[$key]['server'])) {
+                $servers[$key]['server'] = 'hidden.example.com';
+            }
+            
             $availableServers[] = $servers[$key]->toArray();
         }
         return $availableServers;
     }
 
-    public function getAvailableShadowsocks(User $user)
+    public function getAvailableShadowsocks(User $user, bool $showRealAddress = true)
     {
         $servers = [];
         $model = ServerShadowsocks::orderBy('sort', 'ASC');
@@ -154,12 +199,21 @@ class ServerService
                 $shadowsocks[$key]['obfs-host'] = $v['obfs_settings']['host'];
                 $shadowsocks[$key]['obfs-path'] = $v['obfs_settings']['path'];
             }
+            
+            // 如果不显示真实地址，则隐藏
+            if (!$showRealAddress && isset($shadowsocks[$key]['host'])) {
+                $shadowsocks[$key]['host'] = 'hidden.example.com';
+            }
+            if (!$showRealAddress && isset($shadowsocks[$key]['server'])) {
+                $shadowsocks[$key]['server'] = 'hidden.example.com';
+            }
+            
             $servers[] = $shadowsocks[$key]->toArray();
         }
         return $servers;
     }
 
-    public function getAvailableAnyTLS(User $user)
+    public function getAvailableAnyTLS(User $user, bool $showRealAddress = true)
     {
         $servers = [];
         $model = ServerAnytls::orderBy('sort', 'ASC');
@@ -176,25 +230,55 @@ class ServerService
                 $anytls[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_ANYTLS_LAST_CHECK_AT', $v['parent_id']));
                 $anytls[$key]['created_at'] = $anytls[$v['parent_id']]['created_at'];
             }
+            
+            // 如果不显示真实地址，则隐藏
+            if (!$showRealAddress && isset($anytls[$key]['host'])) {
+                $anytls[$key]['host'] = 'hidden.example.com';
+            }
+            if (!$showRealAddress && isset($anytls[$key]['server'])) {
+                $anytls[$key]['server'] = 'hidden.example.com';
+            }
+            
             $servers[] = $anytls[$key]->toArray();
         }
         return $servers;
     }
 
-    public function getAvailableServers(User $user)
+    public function getServers(User $user, bool $isAvailable)
+    {
+        if ($isAvailable) {
+            // 用户有有效订阅，返回完整的节点列表
+            return $this->getAvailableServers($user);
+        } else {
+            // 用户没有有效订阅，返回节点列表但隐藏真实地址
+            return $this->getAvailableServers($user, false);
+        }
+    }
+
+    public function getAvailableServers(User $user, bool $showRealAddress = true)
     {
         $servers = array_merge(
-            $this->getAvailableShadowsocks($user),
-            $this->getAvailableVmess($user),
-            $this->getAvailableTrojan($user),
-            $this->getAvailableTuic($user),
-            $this->getAvailableHysteria($user),
-            $this->getAvailableVless($user),
-            $this->getAvailableAnyTLS($user)
+            $this->getAvailableShadowsocks($user, $showRealAddress),
+            $this->getAvailableVmess($user, $showRealAddress),
+            $this->getAvailableTrojan($user, $showRealAddress),
+            $this->getAvailableTuic($user, $showRealAddress),
+            $this->getAvailableHysteria($user, $showRealAddress),
+            $this->getAvailableVless($user, $showRealAddress),
+            $this->getAvailableAnyTLS($user, $showRealAddress)
         );
         $tmp = array_column($servers, 'sort');
         array_multisort($tmp, SORT_ASC, $servers);
-        return array_map(function ($server) {
+        return array_map(function ($server) use ($showRealAddress) {
+            // 如果不显示真实地址，则隐藏所有地址字段
+            if (!$showRealAddress) {
+                $addressFields = ['host', 'server', 'address'];
+                foreach ($addressFields as $field) {
+                    if (isset($server[$field])) {
+                        $server[$field] = 'hidden.example.com';
+                    }
+                }
+            }
+            
             if (strpos($server['port'], '-')) {
                 $server['mport'] = (string)$server['port'];
             } else {
