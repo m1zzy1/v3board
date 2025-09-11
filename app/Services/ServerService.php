@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Cache;
 
 class ServerService
 {
-    public function getAvailableVless(User $user, bool $showRealAddress = true):array
+    public function getAvailableVless(User $user, bool $showRealAddress = true, bool $ignoreGroupLimit = false):array
     {
         $servers = [];
         $model = ServerVless::orderBy('sort', 'ASC');
@@ -26,7 +26,8 @@ class ServerService
         foreach ($server as $key => $v) {
             if (!$v['show']) continue;
             $server[$key]['type'] = 'vless';
-            if (!in_array($user->group_id, $server[$key]['group_id'])) continue;
+            // 如果不忽略组限制且用户不在允许的组中，则跳过
+            if (!$ignoreGroupLimit && !in_array($user->group_id, $server[$key]['group_id'])) continue;
             if (strpos($server[$key]['port'], '-') !== false) {
                 $server[$key]['port'] = Helper::randomPort($server[$key]['port']);
             }
@@ -56,7 +57,7 @@ class ServerService
         return $servers;
     }
 
-    public function getAvailableVmess(User $user, bool $showRealAddress = true):array
+    public function getAvailableVmess(User $user, bool $showRealAddress = true, bool $ignoreGroupLimit = false):array
     {
         $servers = [];
         $model = ServerVmess::orderBy('sort', 'ASC');
@@ -64,7 +65,8 @@ class ServerService
         foreach ($vmess as $key => $v) {
             if (!$v['show']) continue;
             $vmess[$key]['type'] = 'vmess';
-            if (!in_array($user->group_id, $vmess[$key]['group_id'])) continue;
+            // 如果不忽略组限制且用户不在允许的组中，则跳过
+            if (!$ignoreGroupLimit && !in_array($user->group_id, $vmess[$key]['group_id'])) continue;
             if (strpos($vmess[$key]['port'], '-') !== false) {
                 $vmess[$key]['port'] = Helper::randomPort($vmess[$key]['port']);
             }
@@ -89,7 +91,7 @@ class ServerService
         return $servers;
     }
 
-    public function getAvailableTrojan(User $user, bool $showRealAddress = true):array
+    public function getAvailableTrojan(User $user, bool $showRealAddress = true, bool $ignoreGroupLimit = false):array
     {
         $servers = [];
         $model = ServerTrojan::orderBy('sort', 'ASC');
@@ -97,7 +99,8 @@ class ServerService
         foreach ($trojan as $key => $v) {
             if (!$v['show']) continue;
             $trojan[$key]['type'] = 'trojan';
-            if (!in_array($user->group_id, $trojan[$key]['group_id'])) continue;
+            // 如果不忽略组限制且用户不在允许的组中，则跳过
+            if (!$ignoreGroupLimit && !in_array($user->group_id, $trojan[$key]['group_id'])) continue;
             if (strpos($trojan[$key]['port'], '-') !== false) {
                 $trojan[$key]['port'] = Helper::randomPort($trojan[$key]['port']);
             }
@@ -120,7 +123,7 @@ class ServerService
         return $servers;
     }
 
-    public function getAvailableTuic(User $user, bool $showRealAddress = true)
+    public function getAvailableTuic(User $user, bool $showRealAddress = true, bool $ignoreGroupLimit = false)
     {
         $availableServers = [];
         $model = ServerTuic::orderBy('sort', 'ASC');
@@ -129,7 +132,8 @@ class ServerService
             if (!$v['show']) continue;
             $servers[$key]['type'] = 'tuic';
             $servers[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_TUIC_LAST_CHECK_AT', $v['id']));
-            if (!in_array($user->group_id, $v['group_id'])) continue;
+            // 如果不忽略组限制且用户不在允许的组中，则跳过
+            if (!$ignoreGroupLimit && !in_array($user->group_id, $v['group_id'])) continue;
             if (isset($servers[$v['parent_id']])) {
                 $servers[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_TUIC_LAST_CHECK_AT', $v['parent_id']));
                 $servers[$key]['created_at'] = $servers[$v['parent_id']]['created_at'];
@@ -148,7 +152,7 @@ class ServerService
         return $availableServers;
     }
 
-    public function getAvailableHysteria(User $user, bool $showRealAddress = true)
+    public function getAvailableHysteria(User $user, bool $showRealAddress = true, bool $ignoreGroupLimit = false)
     {
         $availableServers = [];
         $model = ServerHysteria::orderBy('sort', 'ASC');
@@ -157,7 +161,8 @@ class ServerService
             if (!$v['show']) continue;
             $servers[$key]['type'] = 'hysteria';
             $servers[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_HYSTERIA_LAST_CHECK_AT', $v['id']));
-            if (!in_array($user->group_id, $v['group_id'])) continue;
+            // 如果不忽略组限制且用户不在允许的组中，则跳过
+            if (!$ignoreGroupLimit && !in_array($user->group_id, $v['group_id'])) continue;
             if (isset($servers[$v['parent_id']])) {
                 $servers[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_HYSTERIA_LAST_CHECK_AT', $v['parent_id']));
                 $servers[$key]['created_at'] = $servers[$v['parent_id']]['created_at'];
@@ -177,7 +182,7 @@ class ServerService
         return $availableServers;
     }
 
-    public function getAvailableShadowsocks(User $user, bool $showRealAddress = true)
+    public function getAvailableShadowsocks(User $user, bool $showRealAddress = true, bool $ignoreGroupLimit = false)
     {
         $servers = [];
         $model = ServerShadowsocks::orderBy('sort', 'ASC');
@@ -186,7 +191,8 @@ class ServerService
             if (!$v['show']) continue;
             $shadowsocks[$key]['type'] = 'shadowsocks';
             $shadowsocks[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_SHADOWSOCKS_LAST_CHECK_AT', $v['id']));
-            if (!in_array($user->group_id, $v['group_id'])) continue;
+            // 如果不忽略组限制且用户不在允许的组中，则跳过
+            if (!$ignoreGroupLimit && !in_array($user->group_id, $v['group_id'])) continue;
             if (strpos($v['port'], '-') !== false) {
                 $shadowsocks[$key]['port'] = Helper::randomPort($v['port']);
             }
@@ -213,7 +219,7 @@ class ServerService
         return $servers;
     }
 
-    public function getAvailableAnyTLS(User $user, bool $showRealAddress = true)
+    public function getAvailableAnyTLS(User $user, bool $showRealAddress = true, bool $ignoreGroupLimit = false)
     {
         $servers = [];
         $model = ServerAnytls::orderBy('sort', 'ASC');
@@ -222,7 +228,8 @@ class ServerService
             if (!$v['show']) continue;
             $anytls[$key]['type'] = 'anytls';
             $anytls[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_ANYTLS_LAST_CHECK_AT', $v['id']));
-            if (!in_array($user->group_id, $v['group_id'])) continue;
+            // 如果不忽略组限制且用户不在允许的组中，则跳过
+            if (!$ignoreGroupLimit && !in_array($user->group_id, $v['group_id'])) continue;
             if (strpos($v['port'], '-') !== false) {
                 $anytls[$key]['port'] = Helper::randomPort($v['port']);
             }
@@ -251,20 +258,21 @@ class ServerService
             return $this->getAvailableServers($user);
         } else {
             // 用户没有有效订阅，返回节点列表但隐藏真实地址
-            return $this->getAvailableServers($user, false);
+            // 注意：这里我们传递一个特殊的标志来表示需要显示所有节点
+            return $this->getAvailableServers($user, false, true);
         }
     }
 
-    public function getAvailableServers(User $user, bool $showRealAddress = true)
+    public function getAvailableServers(User $user, bool $showRealAddress = true, bool $ignoreGroupLimit = false)
     {
         $servers = array_merge(
-            $this->getAvailableShadowsocks($user, $showRealAddress),
-            $this->getAvailableVmess($user, $showRealAddress),
-            $this->getAvailableTrojan($user, $showRealAddress),
-            $this->getAvailableTuic($user, $showRealAddress),
-            $this->getAvailableHysteria($user, $showRealAddress),
-            $this->getAvailableVless($user, $showRealAddress),
-            $this->getAvailableAnyTLS($user, $showRealAddress)
+            $this->getAvailableShadowsocks($user, $showRealAddress, $ignoreGroupLimit),
+            $this->getAvailableVmess($user, $showRealAddress, $ignoreGroupLimit),
+            $this->getAvailableTrojan($user, $showRealAddress, $ignoreGroupLimit),
+            $this->getAvailableTuic($user, $showRealAddress, $ignoreGroupLimit),
+            $this->getAvailableHysteria($user, $showRealAddress, $ignoreGroupLimit),
+            $this->getAvailableVless($user, $showRealAddress, $ignoreGroupLimit),
+            $this->getAvailableAnyTLS($user, $showRealAddress, $ignoreGroupLimit)
         );
         $tmp = array_column($servers, 'sort');
         array_multisort($tmp, SORT_ASC, $servers);
