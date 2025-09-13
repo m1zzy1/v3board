@@ -41,7 +41,12 @@ class ServerService
                     $server[$key]['tls_settings']=array_diff_key($server[$key]['tls_settings'],array('private_key'=>''));
                 }
             }
-            
+            if (isset($server[$key]['encryption_settings'])) {
+                if (isset($server[$key]['encryption_settings']['private_key'])) {
+                    $server[$key]['encryption_settings']=array_diff_key($server[$key]['encryption_settings'],array('private_key'=>''));
+                }
+            }
+
             // 如果不显示真实地址，则隐藏
             if (!$showRealAddress && isset($server[$key]['host'])) {
                 $server[$key]['host'] = 'hidden.example.com';
@@ -49,7 +54,7 @@ class ServerService
             if (!$showRealAddress && isset($server[$key]['server'])) {
                 $server[$key]['server'] = 'hidden.example.com';
             }
-            
+
             $servers[] = $server[$key]->toArray();
         }
 
@@ -75,7 +80,7 @@ class ServerService
             } else {
                 $vmess[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_VMESS_LAST_CHECK_AT', $vmess[$key]['id']));
             }
-            
+
             // 如果不显示真实地址，则隐藏
             if (!$showRealAddress && isset($vmess[$key]['host'])) {
                 $vmess[$key]['host'] = 'hidden.example.com';
@@ -83,7 +88,7 @@ class ServerService
             if (!$showRealAddress && isset($vmess[$key]['server'])) {
                 $vmess[$key]['server'] = 'hidden.example.com';
             }
-            
+
             $servers[] = $vmess[$key]->toArray();
         }
 
@@ -109,7 +114,7 @@ class ServerService
             } else {
                 $trojan[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_TROJAN_LAST_CHECK_AT', $trojan[$key]['id']));
             }
-            
+
             // 如果不显示真实地址，则隐藏
             if (!$showRealAddress && isset($trojan[$key]['host'])) {
                 $trojan[$key]['host'] = 'hidden.example.com';
@@ -117,7 +122,7 @@ class ServerService
             if (!$showRealAddress && isset($trojan[$key]['server'])) {
                 $trojan[$key]['server'] = 'hidden.example.com';
             }
-            
+
             $servers[] = $trojan[$key]->toArray();
         }
         return $servers;
@@ -138,7 +143,7 @@ class ServerService
                 $servers[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_TUIC_LAST_CHECK_AT', $v['parent_id']));
                 $servers[$key]['created_at'] = $servers[$v['parent_id']]['created_at'];
             }
-            
+
             // 如果不显示真实地址，则隐藏
             if (!$showRealAddress && isset($servers[$key]['host'])) {
                 $servers[$key]['host'] = 'hidden.example.com';
@@ -146,7 +151,7 @@ class ServerService
             if (!$showRealAddress && isset($servers[$key]['server'])) {
                 $servers[$key]['server'] = 'hidden.example.com';
             }
-            
+
             $availableServers[] = $servers[$key]->toArray();
         }
         return $availableServers;
@@ -168,7 +173,7 @@ class ServerService
                 $servers[$key]['created_at'] = $servers[$v['parent_id']]['created_at'];
             }
             $servers[$key]['server_key'] = Helper::getServerKey($servers[$key]['created_at'], 16);
-            
+
             // 如果不显示真实地址，则隐藏
             if (!$showRealAddress && isset($servers[$key]['host'])) {
                 $servers[$key]['host'] = 'hidden.example.com';
@@ -176,7 +181,7 @@ class ServerService
             if (!$showRealAddress && isset($servers[$key]['server'])) {
                 $servers[$key]['server'] = 'hidden.example.com';
             }
-            
+
             $availableServers[] = $servers[$key]->toArray();
         }
         return $availableServers;
@@ -205,7 +210,7 @@ class ServerService
                 $shadowsocks[$key]['obfs-host'] = $v['obfs_settings']['host'];
                 $shadowsocks[$key]['obfs-path'] = $v['obfs_settings']['path'];
             }
-            
+
             // 如果不显示真实地址，则隐藏
             if (!$showRealAddress && isset($shadowsocks[$key]['host'])) {
                 $shadowsocks[$key]['host'] = 'hidden.example.com';
@@ -213,7 +218,7 @@ class ServerService
             if (!$showRealAddress && isset($shadowsocks[$key]['server'])) {
                 $shadowsocks[$key]['server'] = 'hidden.example.com';
             }
-            
+
             $servers[] = $shadowsocks[$key]->toArray();
         }
         return $servers;
@@ -237,7 +242,7 @@ class ServerService
                 $anytls[$key]['last_check_at'] = Cache::get(CacheKey::get('SERVER_ANYTLS_LAST_CHECK_AT', $v['parent_id']));
                 $anytls[$key]['created_at'] = $anytls[$v['parent_id']]['created_at'];
             }
-            
+
             // 如果不显示真实地址，则隐藏
             if (!$showRealAddress && isset($anytls[$key]['host'])) {
                 $anytls[$key]['host'] = 'hidden.example.com';
@@ -245,7 +250,7 @@ class ServerService
             if (!$showRealAddress && isset($anytls[$key]['server'])) {
                 $anytls[$key]['server'] = 'hidden.example.com';
             }
-            
+
             $servers[] = $anytls[$key]->toArray();
         }
         return $servers;
@@ -285,7 +290,7 @@ class ServerService
                         $server[$field] = 'hidden.example.com';
                     }
                 }
-                
+
                 // 伪装其他字段
                 $server['port'] = 0;
                 if (isset($server['server_port'])) {
@@ -295,7 +300,7 @@ class ServerService
                 $server['cache_key'] = '';
                 $server['last_check_at'] = time(); // 设置为当前时间
             }
-            
+
             // 处理端口字段
             if (isset($server['port'])) {
                 if (strpos((string)$server['port'], '-')) {
@@ -304,19 +309,19 @@ class ServerService
                     $server['port'] = (int)$server['port'];
                 }
             }
-            
+
             // 处理在线状态
             if (!isset($server['is_online'])) {
                 $server['is_online'] = (time() - 300 > ($server['last_check_at'] ?? 0)) ? 0 : 1;
             }
-            
+
             // 处理缓存键
             if (!isset($server['cache_key']) || ($showRealAddress && $server['cache_key'] === '')) {
-                $server['cache_key'] = isset($server['type']) && isset($server['id']) && isset($server['updated_at']) && isset($server['is_online']) 
-                    ? "{$server['type']}-{$server['id']}-{$server['updated_at']}-{$server['is_online']}" 
+                $server['cache_key'] = isset($server['type']) && isset($server['id']) && isset($server['updated_at']) && isset($server['is_online'])
+                    ? "{$server['type']}-{$server['id']}-{$server['updated_at']}-{$server['is_online']}"
                     : '';
             }
-            
+
             return $server;
         }, $servers);
     }
