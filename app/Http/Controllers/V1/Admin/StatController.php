@@ -24,20 +24,19 @@ class StatController extends Controller
 {
     public function getOverride(Request $request)
     {
-        // 累计付费用户：有过成功支付订单的用户数量
-        $paidUserTotal = Order::whereNotIn('status', [0, 2])
-            ->distinct('user_id')
-            ->count('user_id');
+        // 累计付费用户：plan_id 或 group_id 不为 null 的用户数量
+        $paidUserTotal = User::where(function ($query) {
+                $query->whereNotNull('plan_id')
+                      ->orWhereNotNull('group_id');
+            })
+            ->count();
         
-        // 有效付费用户：当前有有效订阅且流量未用完的用户数量
-        $activePaidUsers = User::whereHas('orders', function ($query) {
-                $query->whereNotIn('status', [0, 2]);
+        // 有效付费用户：plan_id 或 group_id 不为 null 且已用流量不超过总流量的用户数量
+        $activePaidUsers = User::where(function ($query) {
+                $query->whereNotNull('plan_id')
+                      ->orWhereNotNull('group_id');
             })
-            ->where(function ($query) {
-                // 有流量且未用完
-                $query->where('transfer_enable', '>', 0)
-                      ->whereRaw('u + d < transfer_enable');
-            })
+            ->whereRaw('u + d <= transfer_enable')
             ->count();
 
         return [
