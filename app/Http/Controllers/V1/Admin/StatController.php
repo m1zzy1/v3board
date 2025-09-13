@@ -28,6 +28,7 @@ class StatController extends Controller
             'data' => [
                 'online_user' => User::where('t','>=', time() - 600)
                     ->count(),
+                'total_user' => User::count(), // 添加总用户统计字段
                 'month_income' => Order::where('created_at', '>=', strtotime(date('Y-m-1')))
                     ->where('created_at', '<', time())
                     ->whereNotIn('status', [0, 2])
