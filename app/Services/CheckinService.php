@@ -181,7 +181,7 @@ class CheckinService
         if (Cache::has($cacheKey)) {
             return [
                 'data' => false,
-                'message' => '您已签到过，请勿重新签到'
+                'message' => '您今天已经签到过，请勿重复签到'
             ];
         }
 
