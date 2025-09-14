@@ -24,6 +24,9 @@ class StatController extends Controller
 {
     public function getOverride(Request $request)
     {
+        // 总用户数
+        $totalUsers = User::count();
+        
         // 累计付费用户：plan_id 或 group_id 不为 null 的用户数量
         $paidUserTotal = User::where(function ($query) {
                 $query->whereNotNull('plan_id')
@@ -39,13 +42,17 @@ class StatController extends Controller
             ->whereRaw('u + d <= transfer_enable')
             ->count();
 
+        // 计算百分比，保留两位小数
+        $paidUserTotalPercent = $totalUsers > 0 ? round(($paidUserTotal / $totalUsers) * 100, 2) : 0;
+        $activePaidUsersPercent = $totalUsers > 0 ? round(($activePaidUsers / $totalUsers) * 100, 2) : 0;
+
         return [
             'data' => [
                 'online_user' => User::where('t','>=', time() - 600)
                     ->count(),
-                'total_user' => User::count(), // 添加总用户统计字段
-                'paid_user_total' => $paidUserTotal, // 累计付费用户
-                'paid_user_active' => $activePaidUsers, // 有效付费用户
+                'total_user' => $totalUsers, // 添加总用户统计字段
+                'paid_user_total' => $paidUserTotal . ' / ' . $paidUserTotalPercent . '%', // 累计付费用户
+                'paid_user_active' => $activePaidUsers . ' / ' . $activePaidUsersPercent . '%', // 有效付费用户
                 'month_income' => Order::where('created_at', '>=', strtotime(date('Y-m-1')))
                     ->where('created_at', '<', time())
                     ->whereNotIn('status', [0, 2])
