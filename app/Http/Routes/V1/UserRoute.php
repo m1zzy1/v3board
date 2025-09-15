@@ -54,6 +54,7 @@ class UserRoute
             $router->get ('/server/fetch', 'V1\User\ServerController@fetch');
             // Coupon
             $router->post('/coupon/check', 'V1\User\CouponController@check');
+            $router->get ('/coupon/fetch', 'V1\User\CouponController@fetch');
             // Telegram
             $router->get ('/telegram/getBotInfo', 'V1\User\TelegramController@getBotInfo');
             // Comm
