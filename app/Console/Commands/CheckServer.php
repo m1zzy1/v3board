@@ -76,9 +76,9 @@ class CheckServer extends Command
                     if (!Cache::has($notifiedKey)) {
                         $telegramService = new TelegramService();
                         $message = sprintf(
-                            "节点连续掉线通知\r\n----\r\n节点名称：%s\r\n节点地址：%s\r\n掉线次数：%d次\r\n",
+                            "🔴 节点连续掉线通知\n----\n📍 节点名称：%s\n🆔 节点ID：%d\n⏰ 掉线次数：%d次\n",
                             $server['name'],
-                            $server['host'],
+                            $server['id'],
                             $offlineCount
                         );
                         $telegramService->sendMessageWithAdmin($message);
@@ -119,24 +119,24 @@ class CheckServer extends Command
                 $offlineServers++;
                 $offlineList[] = [
                     'name' => $server['name'],
-                    'host' => $server['host']
+                    'id' => $server['id']
                 ];
             }
         }
         
         // 构造报告消息
         $message = sprintf(
-            "节点状态报告\r\n----\r\n总节点数：%d\r\n在线节点：%d\r\n离线节点：%d\r\n",
+            "📊 节点状态报告\n----\n📈 总节点数：%d\n✅ 在线节点：%d\n❌ 离线节点：%d\n",
             $totalServers,
             $onlineServers,
             $offlineServers
         );
         
-        // 如果有离线节点，列出离线节点信息
+        // 如果有离线节点，列出离线节点信息（只显示节点名和ID）
         if (!empty($offlineList)) {
-            $message .= "\r\n离线节点列表：\r\n";
+            $message .= "\n📋 离线节点列表：\n";
             foreach ($offlineList as $index => $server) {
-                $message .= sprintf("%d. %s (%s)\r\n", $index + 1, $server['name'], $server['host']);
+                $message .= sprintf("%d. %s-id:%d\n", $index + 1, $server['name'], $server['id']);
             }
         }
         
