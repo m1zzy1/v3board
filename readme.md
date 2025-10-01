@@ -26,7 +26,7 @@
 
 合并xiao v2board有冲突？运行以下脚本手动解决冲突即可
 ```shell
-    sh merge.sh
+sh merge.sh
 ```
 
 # **V2Board**
